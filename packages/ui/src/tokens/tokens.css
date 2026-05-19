@@ -1,0 +1,219 @@
+/*
+ * RVF Malinois — Industrial Design Tokens
+ * --------------------------------------------------------------------------
+ * Every color, spacing, radius, and motion value in the platform comes from
+ * here. Components reference these by *semantic name* (e.g. `bg-surface`,
+ * `text-primary`, `bg-status-alarm`); they NEVER reference a hex literal.
+ *
+ * Themes
+ *   data-theme="dark"    — control room (default). Low-luminance canvas;
+ *                          text is NOT pure white (#E6EDF3) to reduce halo
+ *                          across 12-hour shifts.
+ *   data-theme="light"   — field tablet under sunlight, and client portal.
+ *
+ * Semantic color rules (ISA-101)
+ *   - In normal state, screens are ~90% neutral. Color = meaning.
+ *   - Green is used sparingly. Health is communicated by the ABSENCE of alarm.
+ *   - One color, one meaning, system-wide. Red is alarm everywhere; ambient
+ *     is warning everywhere; gray is stale everywhere.
+ *
+ * See:
+ *   docs/ui/industrial-design-system.md  §6–§8
+ *   docs/architecture/engineering-architecture.md §9
+ * --------------------------------------------------------------------------
+ *
+ * Note: this file is intentionally NOT wrapped in `@layer base { … }`. The
+ * tokens are global CSS custom properties; they don't need to participate
+ * in Tailwind's cascade layers, and wrapping them in `@layer base` makes
+ * the file unusable outside a Tailwind context (because the merged
+ * stylesheet sees `@layer base` before `@tailwind base`).
+ */
+
+:root,
+:root[data-theme='dark'] {
+  /* ---- Surface ------------------------------------------------------- */
+  --bg-canvas: #0e1620;
+  --bg-surface: #16202c;
+  --bg-surface-raised: #1a2734;
+  --bg-overlay: #0e1620e6; /* modals, transient overlays */
+
+  /* ---- Text ---------------------------------------------------------- */
+  --text-primary: #e6edf3;
+  --text-secondary: #a8b4c2;
+  --text-muted: #6e7c8c;
+  --text-inverse: #0e1620;
+  --text-on-accent: #ffffff;
+
+  /* ---- Borders ------------------------------------------------------- */
+  --border-subtle: #243240;
+  --border-strong: #36475a;
+  --border-focus: #39b6e8;
+
+  /* ---- Brand --------------------------------------------------------- */
+  --brand-primary: #1f5fa8; /* RVF blue */
+  --brand-accent: #39b6e8; /* RVF cyan — used for live-data marker */
+  --brand-primary-hover: #2670bd;
+
+  /* ---- Status / alarm semantics ------------------------------------- */
+  --status-normal: #3da56b; /* used sparingly — only as a small dot */
+  --status-warn: #e0a12e;
+  --status-alarm: #d24a3d;
+  --status-critical: #b6362b;
+  --status-stale: #8a95a2;
+  --status-info: #5aa8e8;
+
+  /* Foreground that reads well on a status fill (chips, badges). */
+  --status-fg: #ffffff;
+
+  /* ---- Chart series palette (categorical, desaturated) -------------- */
+  --series-1: #4e8ec9;
+  --series-2: #c7833a;
+  --series-3: #6fa86c;
+  --series-4: #b86c8c;
+  --series-5: #8c7cbb;
+  --series-6: #4ca39a;
+
+  /* ---- Quality of data --------------------------------------------- */
+  --quality-good: var(--text-primary);
+  --quality-estimated: var(--status-info);
+  --quality-uncertain: var(--text-muted);
+  --quality-bad: var(--status-alarm);
+  --quality-stale: var(--status-stale);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  /* ---- Surface ------------------------------------------------------- */
+  --bg-canvas: #f4f6f8;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #ffffff;
+  --bg-overlay: #f4f6f8e6;
+
+  /* ---- Text ---------------------------------------------------------- */
+  --text-primary: #16273d;
+  --text-secondary: #4a5b72;
+  --text-muted: #6e7c8c;
+  --text-inverse: #ffffff;
+  --text-on-accent: #ffffff;
+
+  /* ---- Borders ------------------------------------------------------- */
+  --border-subtle: #d8e0e8;
+  --border-strong: #b8c4d2;
+  --border-focus: #1f5fa8;
+
+  /* ---- Brand --------------------------------------------------------- */
+  --brand-primary: #1f5fa8;
+  --brand-accent: #2c8fbf;
+  --brand-primary-hover: #18497f;
+
+  /* ---- Status — same meanings, slightly tuned for light backgrounds -- */
+  --status-normal: #2e8a55;
+  --status-warn: #b88419;
+  --status-alarm: #b6362b;
+  --status-critical: #8e2820;
+  --status-stale: #6e7c8c;
+  --status-info: #1f5fa8;
+  --status-fg: #ffffff;
+
+  /* ---- Chart series ------------------------------------------------- */
+  --series-1: #1f5fa8;
+  --series-2: #a35b14;
+  --series-3: #2e8a55;
+  --series-4: #8c3d63;
+  --series-5: #5746a0;
+  --series-6: #1f7e74;
+
+  /* ---- Quality ------------------------------------------------------- */
+  --quality-good: var(--text-primary);
+  --quality-estimated: var(--status-info);
+  --quality-uncertain: var(--text-muted);
+  --quality-bad: var(--status-alarm);
+  --quality-stale: var(--status-stale);
+
+  color-scheme: light;
+}
+
+/* ----------------------------------------------------------------------
+   * Theme-independent tokens — spacing, radius, motion, typography
+   * --------------------------------------------------------------------*/
+:root {
+  /* Spacing (base 4 px, design-system §12) */
+  --space-0: 0;
+  --space-1: 0.125rem; /* 2 */
+  --space-2: 0.25rem; /* 4 */
+  --space-3: 0.5rem; /* 8 */
+  --space-4: 0.75rem; /* 12 */
+  --space-5: 1rem; /* 16 — card padding default */
+  --space-6: 1.25rem; /* 20 */
+  --space-7: 1.5rem; /* 24 — section gap default */
+  --space-8: 2rem; /* 32 */
+  --space-9: 2.5rem; /* 40 */
+  --space-10: 3rem; /* 48 */
+  --space-11: 4rem; /* 64 */
+
+  /* Border radius (contained — design-system §12) */
+  --radius-none: 0; /* tables, mimics */
+  --radius-xs: 2px; /* chips */
+  --radius-sm: 4px; /* cards */
+  --radius-md: 6px; /* modals */
+
+  /* Border widths */
+  --border-width-thin: 1px;
+  --border-width-emphasis: 2px;
+
+  /* Elevation — only two real levels (design-system §12) */
+  --elevation-surface: 0 0 0 1px var(--border-subtle);
+  --elevation-overlay: 0 4px 16px rgba(0, 0, 0, 0.3);
+
+  /* Typography */
+  --font-sans:
+    'Inter', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono:
+    'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale — few sizes, clear hierarchy (design-system §9) */
+  --text-size-micro: 0.6875rem; /* 11 — micro labels (UPPERCASE micro) */
+  --text-size-xs: 0.75rem; /* 12 — secondary metadata */
+  --text-size-sm: 0.8125rem; /* 13 — body small */
+  --text-size-base: 0.875rem; /* 14 — body */
+  --text-size-md: 1rem; /* 16 — emphasized text */
+  --text-size-lg: 1.25rem; /* 20 — section title */
+  --text-size-xl: 1.5rem; /* 24 — page title */
+  --text-size-display: 2.25rem; /* 36 — KPI value */
+  --text-size-display-lg: 3rem; /* 48 — wall display KPI */
+
+  --text-weight-regular: 400;
+  --text-weight-medium: 500;
+  --text-weight-semibold: 600;
+  --text-weight-bold: 700;
+
+  --text-line-tight: 1.15;
+  --text-line-normal: 1.4;
+  --text-line-relaxed: 1.6;
+
+  --text-tracking-tight: -0.01em;
+  --text-tracking-normal: 0;
+  --text-tracking-wide: 0.05em;
+  --text-tracking-micro: 0.08em; /* micro labels */
+
+  /* Motion (design-system §32) */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 240ms;
+  --motion-easing: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Density (design-system §21) */
+  --density-row-comfortable: 40px; /* tablet/field */
+  --density-row-compact: 32px; /* control room */
+}
+
+/* Reduced-motion override — design-system §32 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}

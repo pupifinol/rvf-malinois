@@ -1,0 +1,36 @@
+// RVF Malinois — Prisma schema
+//
+// Phase F0: no domain tables. The first migration only enables the
+// TimescaleDB extension so the dev database is ready for hypertables in F1/F2
+// (telemetry, sensor_health) without retrofitting later.
+//
+// Domain tables (tenants, wells, equipment, equipment_sensors,
+// signalfire_devices, tag_dictionary, jobs, commissioning, alarms,
+// alarm_log, users, roles, audit_log) come in F1 and follow the model in
+// docs/architecture/domain-model.md §21.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  // Declare every binary target our deployments need so Prisma downloads them
+  // up-front. `native` covers the developer's host; the linux targets cover
+  // our Docker images (bookworm-slim is glibc, openssl 3.0).
+  binaryTargets   = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [timescaledb]
+}
+
+/// Internal metadata row created by the F0 migration. Records the schema
+/// phase the DB was provisioned for. Removed (or repurposed) when the real
+/// domain tables arrive in F1.
+model RvfMeta {
+  key        String   @id
+  value      String
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("_rvf_meta")
+}

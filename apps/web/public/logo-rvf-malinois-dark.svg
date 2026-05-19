@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Capa_2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 1440 800">
+  <!-- Generator: Adobe Illustrator 30.4.0, SVG Export Plug-In . SVG Version: 2.1.4 Build 226)  -->
+  <defs>
+    <style>
+      .st0, .st1 {
+        font-size: 112.1px;
+      }
+
+      .st0, .st1, .st2 {
+        font-family: Corbel-Bold, VDHZRC+Corbel-Bold;
+      }
+
+      .st0, .st1, .st3 {
+        fill: #fbfbfb;
+      }
+
+      .st4, .st5 {
+        fill: #939393;
+      }
+
+      .st1 {
+        letter-spacing: -.1em;
+      }
+
+      .st2 {
+        fill: #0c63a2;
+        font-size: 114.4px;
+        letter-spacing: 0em;
+      }
+
+      .st6 {
+        fill: #f55;
+      }
+
+      .st7 {
+        fill: #035aa7;
+      }
+
+      .st8 {
+        fill: url(#Degradado_sin_nombre_5);
+      }
+
+      .st9 {
+        fill: #fff;
+        font-family: Montserrat-Medium, 'VDHZR C+ Montserrat';
+        font-size: 38.9px;
+        font-weight: 500;
+        letter-spacing: 0em;
+      }
+
+      .st10 {
+        fill: url(#Degradado_sin_nombre_33);
+      }
+
+      .st11 {
+        fill: url(#Degradado_sin_nombre_12);
+      }
+
+      .st12 {
+        fill: url(#Degradado_sin_nombre_14);
+      }
+
+      .st13 {
+        fill: #939598;
+      }
+
+      .st5 {
+        font-family: Montserrat-Bold, 'VDHZR C+ Montserrat';
+        font-size: 106.4px;
+      }
+
+      .st14 {
+        fill: none;
+        stroke: url(#Degradado_sin_nombre_19);
+        stroke-miterlimit: 10;
+        stroke-width: 10px;
+      }
+
+      .st15 {
+        font-weight: 700;
+      }
+
+      .st16 {
+        fill: #070a0f;
+      }
+    </style>
+    <linearGradient id="Degradado_sin_nombre_5" data-name="Degradado sin nombre 5" x1="168.5" y1="309.2" x2="478.1" y2="309.2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#065e9d"/>
+      <stop offset="1" stop-color="#002c67"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_14" data-name="Degradado sin nombre 14" x1="165.2" y1="489" x2="460.6" y2="489" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d8ad3"/>
+      <stop offset="1" stop-color="#08366a"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_33" data-name="Degradado sin nombre 33" x1="411.8" y1="488.8" x2="561.7" y2="488.8" gradientTransform="translate(726.9) scale(-1 1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d8ad3"/>
+      <stop offset="1" stop-color="#fbfbfb"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_12" data-name="Degradado sin nombre 12" x1="229.7" y1="446.3" x2="363" y2="415.6" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1889cd"/>
+      <stop offset="1" stop-color="#05447e"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_19" data-name="Degradado sin nombre 19" x1="199" y1="459.8" x2="432.4" y2="459.8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1889cd"/>
+      <stop offset="1" stop-color="#6caad0"/>
+    </linearGradient>
+  </defs>
+  <rect class="st16" y="-.9" width="1440" height="800"/>
+  <path class="st8" d="M395,379.6c0,13.8,18.5,34.5,18.5,34.5h-123.4l-5.6,23.7-9.2-23.7h-106.8c46.3-104.9,153.6-210.2,181.3-232.6,2.3-1.8,5.6-.2,5.6,2.7v61.3l44.5,21.4,4.9,15.7,70.4,35.9c3,1.5,3.8,5.3,1.8,8-.8,1.5-2.1,3.9-4.1,6.6-2.9,3.9-5.6,6.3-6.3,7.1-3.1,2.9-8.4,9-17.7,23.3-3.9-.2-28.4,0-41.5,0s-12.2,2.2-12.2,16Z"/>
+  <path class="st3" d="M369.1,291.5h28.2s-.8-8-10.6-8-17.6,8-17.6,8Z"/>
+  <polygon class="st6" points="334.1 424.5 332.4 428.3 331.3 424.5 334.1 424.5"/>
+  <path class="st7" d="M341.1,179c-6,5-14.4,12.1-24.4,21.1l-2.4-.6c-.9-.2-1.8-.2-2.7,0l-156.2,41.2c-2.3.6-4,2.7-4,5.1v178.9c0,34.6,27,69.2,80.3,102.9,37.6,23.7,74.7,38.3,76.2,38.9l3.1,1.2c.6.2,1.3.4,1.9.4v28.5c-.7,0-1.3-.1-1.9-.4l-12.7-5c-1.6-.6-41-16.1-80.7-41.2-61.5-38.8-92.7-81-92.7-125.3v-199.3c0-2.4,1.6-4.5,4-5.1l182.8-48.2c.9-.2,1.8-.2,2.7,0l26.8,7.1Z"/>
+  <path class="st4" d="M501,221.1v203.4c0,44.4-31.2,86.5-92.7,125.3-39.8,25.1-79.1,40.5-80.8,41.2l-12.7,5c-.6.2-1.3.4-1.9.4v-28.5c.7,0,1.3-.1,1.9-.4l3.1-1.2c1.6-.6,38.6-15.1,76.2-38.9,53.3-33.6,80.3-68.2,80.3-102.9v-80.5c1.8-1.7,3.6-3.7,5.4-5.8,3.6-4.4,9.3-16.2,8.7-18.6-.3-1.5-1.3-2.8-2.8-3.6l-11.3-6.3v-68.2l-111.5-29.4v-27.5l138.1,36.4Z"/>
+  <path class="st12" d="M460.6,424.5c0,71.3-147.7,128.9-147.7,128.9,0,0-147.7-57.6-147.7-128.9h41c15.8,44,57.9,75.5,107.4,75.5s91.6-31.5,107.4-75.5h39.6Z"/>
+  <path class="st10" d="M312.5,545.8c-19.3-7.7-140.5-58.2-140.5-121.2h-6.9c0,30.8,25,61.9,74.3,92.4,34.9,21.6,70.3,35.1,73.1,36.2v-7.4Z"/>
+  <path class="st11" d="M420.9,424.5c-15.8,44-57.9,75.5-107.4,75.5s-91.6-31.5-107.4-75.5h32.7c-.3-1.9-.5-3.1-.5-3.1l24.8-41.3s10.5,32.6,10.5,34,3.4,6.1,6.3,10.3c2.1,3.2,4,5.8,4,5.8l2.2-5.8.9-2.3,17.4-69.1,14.1,29.1,12.8,42.4,1.1,3.8,1.7-3.8,13.5-29.7,22.1,29.7h51.2Z"/>
+  <path class="st14" d="M203.8,416.7c14.7,47.9,59.3,82.8,112,82.8s97-34.6,111.8-82.3"/>
+  <ellipse class="st3" cx="211.5" cy="418.4" rx="18.5" ry="19.3"/>
+  <text class="st15" transform="translate(555.9 389.3)"><tspan class="st5" x="0" y="0" xml:space="preserve">      </tspan><tspan class="st0" x="180.7" y="0"> </tspan><tspan class="st1" x="203.8" y="0"> </tspan><tspan class="st2" x="215.7" y="0">MALINOIS</tspan></text>
+  <path class="st3" d="M449.7,411.7h-80.5l-13.2-28.6c-1.2-2.7-3.9-4.4-6.9-4.4-3,0-5.7,1.9-6.8,4.8l-10.5,27.1-18.1-81.2c-.8-3.5-3.8-5.9-7.4-5.8-3.6,0-6.5,2.6-7.2,6.2l-16.5,94.6-14.8-53c-.9-3.2-3.7-5.3-7-5.4-3.3-.1-6.2,1.9-7.3,5l-13.9,40.8h-74.5v12.8h66.1s13,0,13,0c2.7,0,5.2-1.7,6-4.3l9.8-28.8,17.8,63.6c.8,2.8,3.3,4.7,6.1,4.7s.2,0,.3,0c3-.1,5.5-2.3,6-5.3l16.7-96,16.9,75.6c.6,2.7,2.9,4.8,5.8,5,2.8.2,5.4-1.4,6.4-4.1l13.5-35.1,9.7,20.9c1,2.3,3.3,3.7,5.8,3.7h80.9s14.5,0,14.5,0v-12.8h-10.8Z"/>
+  <path class="st13" d="M563.6,367.8v29.9c0,1.6,1.3,2.9,2.9,2.9h12.7c1.6,0,2.9-1.3,2.9-2.9v-47.1c0-6.8,5.5-12.3,12.3-12.3h21.3l23.7,57.8c1,2.4,3.3,4,5.9,4h20.2c2.6,0,4.9-1.5,5.9-3.9l23.5-56.1c.4-1.1,1.5-1.8,2.6-1.8h5v59.4c0,1.6,1.3,2.9,2.9,2.9h14.3c1.6,0,2.9-1.3,2.9-2.9v-59.4h17.8c3.2,0,5.7-2.6,5.7-5.7v-10.9c0-1.2-1-2.2-2.2-2.2h-21v-5.4c0-4.4,3.5-7.9,7.9-7.9h13.1c1.2,0,2.2-1,2.2-2.2v-13.8c0-1.2-1-2.2-2.2-2.2h-16.8c-14.7,0-24.1,10.8-24.1,24.1v7.3h-15.8c-2.9.1-5.5,1.9-6.6,4.5l-22.6,55.2c-.7,1.8-3.2,1.8-3.9,0l-23.6-57c-.7-1.6-2.2-2.6-4-2.6h-30.3c-17.8,0-32.2,14.4-32.2,32.2v16.1Z"/>
+  <text class="st9" transform="translate(565.3 449.7)"><tspan x="0" y="0">Monitoring &amp; Predictive Intelligence</tspan></text>
+</svg>

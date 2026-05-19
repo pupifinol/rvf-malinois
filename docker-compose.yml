@@ -1,0 +1,106 @@
+# RVF Malinois — Local development environment.
+#
+# Brings up: PostgreSQL (with TimescaleDB extension), Redis, the NestJS
+# backend in watch mode, and the Next.js frontend in dev mode.
+#
+#   docker compose up -d                  # all services in the background
+#   docker compose logs -f backend web    # follow app logs
+#   docker compose down                   # stop everything (data is kept)
+#   docker compose down -v                # stop and DELETE the database volume
+#
+# Production deployment is autoalojado (engineering-architecture §35); a
+# separate compose / k8s manifest lives outside this repo.
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: rvf-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rvf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rvf_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-rvf_malinois}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-rvf} -d ${POSTGRES_DB:-rvf_malinois}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: rvf-redis
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.dev
+    container_name: rvf-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rvf}:${POSTGRES_PASSWORD:-rvf_dev_password}@postgres:5432/${POSTGRES_DB:-rvf_malinois}?schema=public
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - '${BACKEND_PORT:-4000}:4000'
+    volumes:
+      - ./apps/backend:/workspace/apps/backend
+      - ./packages:/workspace/packages
+      - /workspace/node_modules
+      - /workspace/apps/backend/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          node -e "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    container_name: rvf-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    volumes:
+      - ./apps/web:/workspace/apps/web
+      - ./packages:/workspace/packages
+      - /workspace/node_modules
+      - /workspace/apps/web/node_modules
+      - /workspace/apps/web/.next
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:

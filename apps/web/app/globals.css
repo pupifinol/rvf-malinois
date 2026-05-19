@@ -1,0 +1,44 @@
+/*
+ * Global styles for the RVF Malinois web app.
+ *
+ * 1. Pull in the design tokens from @rvf/ui. This must happen BEFORE Tailwind's
+ *    base layer so the CSS variables exist when utilities resolve them.
+ * 2. Tailwind directives.
+ * 3. App-wide defaults — font, tabular numerals, focus-visible.
+ */
+@import '@rvf/ui/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-size-base);
+    line-height: var(--text-line-normal);
+    /*
+     * Tabular figures by default. Live-updating numeric values (engineering
+     * doc §11) MUST stay column-aligned across updates. The tiny cost of
+     * applying this globally is far cheaper than catching every numeric
+     * usage one-by-one.
+     */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Accessible focus ring (design-system §33). */
+  :focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--brand-primary);
+    color: var(--text-on-accent);
+  }
+}

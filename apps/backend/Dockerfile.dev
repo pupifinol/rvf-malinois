@@ -1,0 +1,42 @@
+# RVF Malinois — Backend dev image
+#
+# This is the development image: it installs all workspaces, mounts the
+# source as a volume in docker-compose, and runs nest in watch mode. A
+# production image will live in `Dockerfile` and use a multi-stage build.
+
+FROM node:20.18.0-bookworm-slim AS dev
+
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+
+# Prisma's query engine needs libssl at runtime. bookworm-slim doesn't ship it.
+# openssl pulls libssl3 + the openssl binary; ca-certificates is needed for
+# HTTPS calls (Prisma migration metadata, etc.).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+
+WORKDIR /workspace
+
+# Bring in just the manifests first so the layer caches.
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* .npmrc ./
+COPY apps/backend/package.json apps/backend/
+COPY packages/config/package.json packages/config/
+COPY packages/types/package.json packages/types/
+COPY packages/ui/package.json packages/ui/
+
+RUN pnpm install --frozen-lockfile=false
+
+# Copy the rest of the source. In docker-compose we mount on top of this so
+# the host edits are picked up by `nest start --watch`.
+COPY . .
+
+WORKDIR /workspace/apps/backend
+
+RUN pnpm prisma generate
+
+EXPOSE 4000
+
+CMD ["pnpm", "dev"]

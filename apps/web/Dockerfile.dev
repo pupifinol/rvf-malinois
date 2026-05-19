@@ -1,0 +1,30 @@
+# RVF Malinois — Web dev image
+#
+# Development image. Production image (multi-stage `next build` + standalone
+# server) lives in `Dockerfile` and is added in F1.
+
+FROM node:20.18.0-bookworm-slim AS dev
+
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+
+WORKDIR /workspace
+
+# Manifests first for layer caching.
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* .npmrc ./
+COPY apps/web/package.json apps/web/
+COPY packages/config/package.json packages/config/
+COPY packages/types/package.json packages/types/
+COPY packages/ui/package.json packages/ui/
+
+RUN pnpm install --frozen-lockfile=false
+
+COPY . .
+
+WORKDIR /workspace/apps/web
+
+EXPOSE 3000
+
+CMD ["pnpm", "dev"]
