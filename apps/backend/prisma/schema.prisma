@@ -17,8 +17,9 @@
 //                EquipmentUnit, Sensor, CanonicalTag, User.
 //   Operation  — immutable once closed/frozen. Job, CommissioningSnapshot,
 //                JobSensorSnapshot, AlarmRule, OperationalEvent.
-//   Telemetry  — append-only, high volume. NOT in F1. F2 adds the
-//                TimescaleDB hypertables (telemetry, sensor_health).
+//   Telemetry  — append-only, high volume. F1.5 adds the TimescaleDB
+//                hypertables (telemetry, sensor_health) + the late-data
+//                quarantine. F2 wires the ingestion adapters.
 //
 // Tenant isolation (telemetry-foundation §17):
 //   Every tenant-owned row carries tenant_id. F1 defines the columns + FKs;
@@ -149,6 +150,25 @@ enum OperationalEventKind {
 /// Defined but not yet referenced by any model — wired in F2's telemetry tables.
 enum TelemetryDirection {
   inbound
+}
+
+/// SignalFire device health status (domain-model §16). Distinct from
+/// telemetry `Quality` because battery + radio health is not a data-quality
+/// statement; it's a device-liveness statement.
+enum HealthStatus {
+  online
+  degraded
+  offline
+}
+
+/// Reason a late telemetry row landed in the quarantine table instead of the
+/// hypertable. Helps a future audit + retry workflow.
+enum LateTelemetryReason {
+  beyond_late_window
+  missing_active_job
+  unknown_canonical_tag
+  duplicate_seq
+  invalid_envelope
 }
 
 // =============================================================================
@@ -473,6 +493,116 @@ model AuditLog {
   @@index([tenantId, at])
   @@index([entityKind, entityId])
   @@map("audit_logs")
+}
+
+// =============================================================================
+// TELEMETRY — append-only, high-volume hypertables (F1.5).
+// =============================================================================
+// Storage discipline (per the additional guidance attached to F1.5):
+//   - Rows preserve the value EXACTLY as received, with the unit it arrived
+//     in. Engineering-unit conversion to the canonical tag's unit happens at
+//     the QUERY layer, never at ingest. No smoothing, filtering,
+//     interpolation, or resampling at ingest.
+//   - Out-of-order timestamps are tolerated; the idempotency key is
+//     (unit_id, seq, canonical_tag_name), not (ts, ...).
+//   - Storage is transport-agnostic: any future adapter (MQTT, REST bridge,
+//     ThingsBoard export, Node-RED, edge direct) normalises into the same
+//     row shape before writing.
+//
+// Timescale specifics (hypertable conversion, indexes, compression policy,
+// retention policy, continuous aggregates) live in the migration's raw SQL —
+// Prisma does not model them. The Prisma model gives us typed CRUD; the
+// hypertable behaviour is layered on after CREATE TABLE.
+
+/// One measurement. Long-format (one row per (ts, job, tag)). Hypertable
+/// chunks every 1 day; indexed for trend slicing by (job, tag, ts DESC).
+model Telemetry {
+  /// Edge-measured timestamp in UTC (telemetry-foundation §4). Never the
+  /// cloud arrival time.
+  ts                  DateTime @db.Timestamptz(6)
+  /// Soft FK to Job.id — no Prisma @relation because hypertables don't
+  /// support FK constraints cleanly. The service layer always joins through
+  /// Job for tenant scoping + interpretation.
+  jobId               String   @map("job_id")
+  canonicalTagName    String   @map("canonical_tag_name") @db.VarChar(64)
+  /// Raw value as received. NOT converted at write time.
+  value               Float
+  /// Engineering unit AS RECEIVED. May or may not equal the canonical unit.
+  /// The trend query layer converts to canonical at read time.
+  valueUnit           String   @map("value_unit") @db.VarChar(40)
+  quality             Quality
+  /// Per-message sequence number from the edge (telemetry-foundation §4).
+  /// Combined with unit_id + canonical_tag_name it is the idempotency key.
+  seq                 BigInt
+  unitId              String   @map("unit_id") @db.VarChar(64)
+  sensorInstrumentTag String   @map("sensor_instrument_tag") @db.VarChar(64)
+  /// Cloud arrival time. Used to detect late delivery + audit lag.
+  receivedAt          DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  /// Audit trail of which adapter wrote this row (e.g., `mqtt`,
+  /// `rest-bridge`, `thingsboard-export`, `edge-direct`, `simulator`).
+  sourceAdapter       String?  @map("source_adapter") @db.VarChar(40)
+
+  /// Composite PK — ts MUST lead so the column can partition the hypertable.
+  @@id([ts, jobId, canonicalTagName])
+  /// Idempotency lookup: a replayed packet with the same (unit, seq, tag)
+  /// triple is dropped at the adapter layer via a pre-INSERT existence check.
+  /// Timescale rejects UNIQUE indexes that don't include the partitioning
+  /// column, so the dedup constraint lives in the application layer and this
+  /// index just makes the lookup fast.
+  @@index([unitId, seq, canonicalTagName])
+  @@index([jobId, canonicalTagName, ts(sort: Desc)])
+  @@map("telemetry")
+}
+
+/// Device-liveness time series (domain-model §16). Separate hypertable so
+/// "battery dead" never gets mistaken for "process change". Same out-of-order
+/// + idempotency rules as Telemetry.
+model SensorHealth {
+  ts                  DateTime     @db.Timestamptz(6)
+  jobId               String       @map("job_id")
+  unitId              String       @map("unit_id") @db.VarChar(64)
+  sensorInstrumentTag String       @map("sensor_instrument_tag") @db.VarChar(64)
+  status              HealthStatus
+  batteryPct          Float?       @map("battery_pct")
+  rssiDbm             Float?       @map("rssi_dbm")
+  meshHops            Int?         @map("mesh_hops")
+  lastReadingAgeS     Int?         @map("last_reading_age_s")
+  receivedAt          DateTime     @default(now()) @map("received_at") @db.Timestamptz(6)
+  sourceAdapter       String?      @map("source_adapter") @db.VarChar(40)
+  seq                 BigInt
+
+  @@id([ts, jobId, sensorInstrumentTag])
+  /// Same Timescale UNIQUE-with-partitioning-column constraint as Telemetry —
+  /// idempotency enforced at the adapter layer.
+  @@index([unitId, seq, sensorInstrumentTag])
+  @@index([jobId, sensorInstrumentTag, ts(sort: Desc)])
+  @@map("sensor_health")
+}
+
+/// Late-arriving / rejected telemetry. Industrial data is never silently
+/// dropped — anything that fails to land in the hypertable is preserved here
+/// for audit and (eventually) replay. Regular table (not a hypertable);
+/// low-volume by design.
+model LateTelemetryQuarantine {
+  id                  String              @id @default(cuid())
+  reason              LateTelemetryReason
+  /// Original envelope as received, verbatim. JSONB so the auditor can see
+  /// exactly what the adapter sent — no normalisation, no field stripping.
+  envelope            Json
+  sourceAdapter       String?             @map("source_adapter") @db.VarChar(40)
+  /// Original edge timestamp if parseable; null if the envelope was malformed
+  /// enough that we couldn't even read a timestamp.
+  originalTs          DateTime?           @map("original_ts") @db.Timestamptz(6)
+  receivedAt          DateTime            @default(now()) @map("received_at") @db.Timestamptz(6)
+  /// Optional structured fields when we could parse them out of the envelope.
+  jobId               String?             @map("job_id")
+  unitId              String?             @map("unit_id") @db.VarChar(64)
+  sensorInstrumentTag String?             @map("sensor_instrument_tag") @db.VarChar(64)
+  notes               String?             @db.Text
+
+  @@index([reason, receivedAt])
+  @@index([jobId, receivedAt])
+  @@map("late_telemetry_quarantine")
 }
 
 // =============================================================================
