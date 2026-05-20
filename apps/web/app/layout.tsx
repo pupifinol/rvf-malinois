@@ -20,6 +20,7 @@ export const metadata: Metadata = {
   description: 'Industrial operational monitoring platform for Well Testing',
   applicationName: 'RVF Malinois',
   robots: { index: false, follow: false },
+  icons: { icon: '/branding/favicon.ico' },
 };
 
 export const viewport: Viewport = {
@@ -36,6 +37,21 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
+      <head>
+        {/*
+         * Montserrat is loaded as a literal-named webfont so the inline brand
+         * SVG (which references `font-family: Montserrat-Bold, Montserrat`)
+         * resolves the lockup's MALINOIS title and the subtitle to the
+         * intended typography. next/font randomises family names and would
+         * not match the SVG's literal reference, so the <link> form stays.
+         */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="min-h-screen bg-canvas text-text-primary antialiased">{children}</body>
     </html>
   );

@@ -2,22 +2,23 @@
 
 import { StatusDot, cn } from '@rvf/ui';
 import { Bell, Clock } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { useConnectionState } from '@/lib/realtime/RealtimeProvider';
 
 /**
- * Topbar — persistent header.
+ * Topbar — persistent header. Spans the full width above the sidebar.
  *
  * Slots required by UI/UX §4 and §19:
- *   - app name / brand
- *   - tenant selector (RVF staff only) [placeholder in F0]
- *   - global alarm banner counter      [placeholder in F0]
+ *   - app brand mark (left)             [the inline wordmark slot]
+ *   - page context label                [F0 shows "Operations Console"]
+ *   - global alarm banner counter       [placeholder in F0]
  *   - clock with shift                  [F0 shows the clock]
  *   - connection status                 [F0 shows the dot]
  *
- * The real alarm counter is a derived value from the realtime stream; F2
- * wires it up. For now the bell is purely a placeholder.
+ * The wordmark is rendered by a server component (Wordmark.tsx) and passed
+ * in as a ReactNode prop — that lets the SVG be inlined at SSR so its
+ * <text> elements pick up the page's Montserrat webfont.
  */
 const useClock = (): string => {
   const [now, setNow] = useState(() => new Date());
@@ -28,7 +29,11 @@ const useClock = (): string => {
   return now.toLocaleTimeString('en-GB', { hour12: false });
 };
 
-export const Topbar = () => {
+interface TopbarProps {
+  wordmark: ReactNode;
+}
+
+export const Topbar = ({ wordmark }: TopbarProps) => {
   const time = useClock();
   const connection = useConnectionState();
 
@@ -42,15 +47,21 @@ export const Topbar = () => {
   return (
     <header
       className={cn(
-        'h-12 shrink-0 sticky top-0 z-10',
+        'h-[80px] shrink-0',
         'bg-surface border-b border-border-subtle',
-        'flex items-center justify-between gap-4 px-5',
+        'flex items-center justify-between gap-6 px-6',
       )}
     >
-      {/* Left: page context will land here in F1 (breadcrumbs from UI/UX §4) */}
-      <div className="text-sm text-text-secondary truncate">RVF Operations Console</div>
+      {/* Left: brand mark + page context (breadcrumbs land here in F1, §4) */}
+      <div className="flex items-center gap-6 min-w-0">
+        {wordmark}
+        <span aria-hidden="true" className="h-8 w-px bg-border-subtle" />
+        <span className="text-sm uppercase tracking-micro font-semibold text-text-secondary truncate">
+          Operations Console
+        </span>
+      </div>
 
-      {/* Right: clock, alarms placeholder, connection */}
+      {/* Right: alarms placeholder, clock, connection */}
       <div className="flex items-center gap-5">
         <button
           type="button"
@@ -58,13 +69,15 @@ export const Topbar = () => {
           aria-label="Open alarm center"
         >
           <Bell className="w-4 h-4" aria-hidden="true" />
-          <span className="text-xs uppercase tracking-micro font-medium">No active alarms</span>
+          <span className="text-micro uppercase tracking-micro font-medium">No active alarms</span>
         </button>
 
-        <div className="flex items-center gap-2 text-text-secondary text-sm tabular-nums">
-          <Clock className="w-4 h-4" aria-hidden="true" />
-          <span>{time}</span>
+        <div className="flex items-center gap-2 text-text-primary tabular-nums">
+          <Clock className="w-4 h-4 text-text-secondary" aria-hidden="true" />
+          <span className="text-sm font-medium">{time}</span>
         </div>
+
+        <span aria-hidden="true" className="h-5 w-px bg-border-subtle" />
 
         <StatusDot
           kind={statusKind}

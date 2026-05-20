@@ -6,19 +6,21 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   FileText,
   Gauge,
   LayoutDashboard,
   LineChart,
   type LucideIcon,
-  PanelLeft,
   Radio,
   ScrollText,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 import { useUiStore } from '@/lib/store/uiStore';
 
@@ -28,6 +30,10 @@ import { useUiStore } from '@/lib/store/uiStore';
  * The SCADA convention: no hamburger menu in a control room. Operators need
  * one-click access to every primary surface. F0 only renders the chrome and
  * the route list — the destinations themselves are placeholder pages.
+ *
+ * Collapse/expand state is persisted in localStorage via uiStore. The first
+ * client render is gated by a `mounted` flag to keep the SSR markup in sync
+ * with the hydration render (the persisted value applies on the next pass).
  */
 interface NavItem {
   href: string;
@@ -52,34 +58,50 @@ const navItems: NavItem[] = [
 
 export const Sidebar = () => {
   const pathname = usePathname();
-  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const persisted = useUiStore((s) => s.sidebarCollapsed);
   const toggle = useUiStore((s) => s.toggleSidebar);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const collapsed = mounted ? persisted : false;
 
   return (
     <aside
       className={cn(
-        'shrink-0 h-screen sticky top-0 bg-surface border-r border-border-subtle',
+        'shrink-0 h-full bg-surface border-r border-border-subtle',
         'flex flex-col transition-[width] duration-base ease-industrial',
-        collapsed ? 'w-11' : 'w-9 md:w-10 lg:w-11 xl:w-11 2xl:w-11',
-        // We use a fixed pixel-ish width to keep dense layouts predictable.
-        collapsed ? '!w-14' : '!w-56',
+        collapsed ? 'w-14' : 'w-56',
       )}
       aria-label="Primary navigation"
     >
-      {/* Brand mark */}
-      <div className="h-12 flex items-center justify-between px-4 border-b border-border-subtle">
-        {!collapsed && (
-          <span className="font-semibold text-sm tracking-wide text-text-primary">
-            RVF Malinois
-          </span>
+      {/* No brand band — the wordmark lives in the full-width topbar above. */}
+
+      {/* Collapse / expand toggle — always present, position swaps with state */}
+      <div
+        className={cn(
+          'h-9 flex items-center border-b border-border-subtle',
+          collapsed ? 'justify-center' : 'justify-end px-3',
         )}
+      >
         <button
           type="button"
           onClick={toggle}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="text-text-secondary hover:text-text-primary p-1 rounded-sm"
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={cn(
+            'flex items-center justify-center w-7 h-7 rounded-sm',
+            'text-text-secondary hover:text-text-primary hover:bg-surface-raised',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus',
+          )}
         >
-          <PanelLeft className="w-4 h-4" />
+          {collapsed ? (
+            <ChevronRight className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+          )}
         </button>
       </div>
 
@@ -92,14 +114,17 @@ export const Sidebar = () => {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  title={collapsed ? item.label : undefined}
+                  aria-label={collapsed ? item.label : undefined}
+                  aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'flex items-center gap-3 px-4 py-2 text-sm',
+                    'flex items-center py-2 text-sm',
                     'border-l-2',
+                    collapsed ? 'justify-center px-0' : 'gap-3 px-4',
                     active
                       ? 'border-l-brand-accent bg-surface-raised text-text-primary'
                       : 'border-l-transparent text-text-secondary hover:text-text-primary hover:bg-surface-raised',
                   )}
-                  aria-current={active ? 'page' : undefined}
                 >
                   <item.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                   {!collapsed && <span className="truncate">{item.label}</span>}
