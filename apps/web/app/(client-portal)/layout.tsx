@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { Providers } from '@/components/providers/Providers';
-import { BrandMark } from '@/components/shell/BrandMark';
+import { Wordmark } from '@/components/shell/Wordmark';
 
 /**
  * (client-portal) layout.
@@ -18,11 +18,11 @@ export default function ClientPortalLayout({ children }: { children: ReactNode }
   return (
     <Providers theme="light">
       <div className="min-h-screen flex flex-col bg-canvas text-text-primary">
-        <header className="h-[56px] shrink-0 sticky top-0 z-10 bg-surface border-b border-border-subtle flex items-center justify-between px-7">
-          <div className="flex items-center gap-4 min-w-0">
-            <BrandMark size="md" />
-            <span aria-hidden="true" className="h-5 w-px bg-border-subtle" />
-            <span className="text-micro uppercase tracking-micro font-medium text-text-secondary truncate">
+        <header className="h-[80px] shrink-0 sticky top-0 z-10 bg-surface border-b border-border-subtle flex items-center justify-between px-7">
+          <div className="flex items-center gap-6 min-w-0">
+            <Wordmark variant="light" className="h-[56px] shrink-0" />
+            <span aria-hidden="true" className="h-8 w-px bg-border-subtle" />
+            <span className="text-sm uppercase tracking-micro font-semibold text-text-secondary truncate">
               Client Portal
             </span>
           </div>

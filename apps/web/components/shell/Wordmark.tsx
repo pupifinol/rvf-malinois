@@ -35,6 +35,14 @@ const readWordmark = (variant: 'dark' | 'light'): string => {
       // readable in the topbar without forcing the chrome to be 140 px
       // tall. The asset on disk is untouched.
       .replace(/viewBox="0 0 1440 800"/, 'viewBox="0 220 1440 380"')
+      // Illustrator sometimes exports the secondary font-family as an
+      // embedded subset name like 'VDHZR C+ Montserrat'. That subset isn't
+      // available at runtime, so the SVG would fall back to the system
+      // sans-serif. Rewrite any quoted Adobe-subset Montserrat fallback to
+      // the plain "Montserrat" family that the root layout loads via
+      // Google Fonts — that lets both dark and light variants resolve to
+      // the correct typography.
+      .replace(/'[^']*Montserrat'/g, 'Montserrat')
       .trim()
   );
 };
