@@ -8,6 +8,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { CanonicalTagsModule } from './tags/tags.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { WellsModule } from './wells/wells.module';
 
@@ -60,6 +61,7 @@ import { WellsModule } from './wells/wells.module';
     WellsModule,
     EquipmentModule,
     JobsModule,
+    TelemetryModule,
   ],
 })
 export class AppModule {}

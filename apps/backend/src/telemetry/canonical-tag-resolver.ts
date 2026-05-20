@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { type EngineeringUnitClass, JobStatus, type SensorType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -62,7 +62,7 @@ export class CanonicalTagResolver {
 
   constructor(
     private readonly prisma: PrismaService,
-    options?: { cacheLimit?: number },
+    @Optional() options?: { cacheLimit?: number },
   ) {
     this.cacheLimit = options?.cacheLimit ?? DEFAULT_CACHE_LIMIT;
   }
