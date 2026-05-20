@@ -2,24 +2,35 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 
 import { ConfigModule } from './config/config.module';
+import { EquipmentModule } from './equipment/equipment.module';
 import { HealthModule } from './health/health.module';
+import { JobsModule } from './jobs/jobs.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { CanonicalTagsModule } from './tags/tags.module';
+import { TenantsModule } from './tenants/tenants.module';
+import { WellsModule } from './wells/wells.module';
 
 /**
  * AppModule — top-level wiring.
  *
- * The order of imports below mirrors the dependency direction of the system:
+ * Dependency direction (top → bottom):
  *
- *   ConfigModule       — env first, everyone depends on it.
- *   LoggerModule       — Pino logger, structured JSON in prod, pretty in dev.
- *   PrismaModule       — database access (global).
- *   HealthModule       — / health endpoint (independent of everything else).
- *   RealtimeModule     — Socket.IO gateway (uses Config).
+ *   ConfigModule       env first, everyone depends on it.
+ *   LoggerModule       Pino logger, structured JSON in prod, pretty in dev.
+ *   PrismaModule       database access (global).
+ *   HealthModule       /health endpoint (independent of everything else).
+ *   RealtimeModule     Socket.IO gateway (uses Config).
+ *   --- F1 domain modules (read-only catalog + operations) ---
+ *   CanonicalTagsModule   /api/v1/tags
+ *   TenantsModule         /api/v1/tenants
+ *   WellsModule           /api/v1/wells
+ *   EquipmentModule       /api/v1/equipment/types|units
+ *   JobsModule            /api/v1/jobs    + CommissioningService
  *
- * F1 will add: AuthModule, CatalogModule, OperationsModule, TelemetryModule,
- * AlarmsModule, AuditModule, IotPlatformAdapterModule (the ThingsBoard
- * wrapper from §10 of system-architecture).
+ * Still to land: AuthModule (F1.5), TelemetryModule (F2), AlarmsModule,
+ * AuditModule, IotPlatformAdapterModule (the ThingsBoard wrapper from §10
+ * of system-architecture).
  */
 @Module({
   imports: [
@@ -44,6 +55,11 @@ import { RealtimeModule } from './realtime/realtime.module';
     PrismaModule,
     HealthModule,
     RealtimeModule,
+    CanonicalTagsModule,
+    TenantsModule,
+    WellsModule,
+    EquipmentModule,
+    JobsModule,
   ],
 })
 export class AppModule {}

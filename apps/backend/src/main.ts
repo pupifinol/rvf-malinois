@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger as PinoLogger } from 'nestjs-pino';
 
@@ -36,6 +37,22 @@ async function bootstrap(): Promise<void> {
 
   // Versioned API surface per telemetry-foundation §15.
   app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+
+  // OpenAPI/Swagger. Mounted at /api/docs for F1 inspection. Disabled when
+  // NODE_ENV=production unless SWAGGER_ENABLED=true is set explicitly.
+  if (env.NODE_ENV !== 'production' || process.env.SWAGGER_ENABLED === 'true') {
+    const swagger = new DocumentBuilder()
+      .setTitle('RVF Malinois — Business API')
+      .setDescription(
+        'Read-only catalog & operations endpoints for the F1 domain model. ' +
+          'Tenant scoping (auth-derived) lands in F1.5; today every endpoint ' +
+          'serves every tenant.',
+      )
+      .setVersion('v1')
+      .build();
+    const document = SwaggerModule.createDocument(app, swagger);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   app.enableShutdownHooks();
 
