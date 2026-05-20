@@ -16,6 +16,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
+    "telemetry:sample": "ts-node --project prisma/tsconfig.json --transpile-only scripts/generate-sample-telemetry.ts",
     "clean": "rm -rf dist .turbo"
   },
   "prisma": {

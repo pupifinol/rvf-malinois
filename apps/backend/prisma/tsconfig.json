@@ -11,5 +11,5 @@
     "noImplicitAny": true,
     "isolatedModules": true
   },
-  "include": ["seed.ts"]
+  "include": ["seed.ts", "../scripts/**/*.ts", "../src/telemetry/contracts/**/*.ts"]
 }
