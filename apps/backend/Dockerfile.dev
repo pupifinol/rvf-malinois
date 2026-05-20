@@ -4,7 +4,11 @@
 # source as a volume in docker-compose, and runs nest in watch mode. A
 # production image will live in `Dockerfile` and use a multi-stage build.
 
-FROM node:20.18.0-bookworm-slim AS dev
+FROM node:22-bookworm-slim AS dev
+# Node 22 LTS. Bumped from 20.18.0 so the lockfile's transitive
+# eslint-visitor-keys@^5 (requires Node ^20.19 || ^22.13 || >=24) installs
+# under the repo's engine-strict=true (.npmrc). Prisma binary targets
+# (debian-openssl-3.0.x) still cover this base image.
 
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
