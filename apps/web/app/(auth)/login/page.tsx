@@ -1,9 +1,13 @@
 import { Button, Card, CardBody, CardHeader, CardLabel } from '@rvf/ui';
 
-import { BrandMark } from '@/components/shell/BrandMark';
+import { Wordmark } from '@/components/shell/Wordmark';
 
 /**
  * Login — Phase F0 placeholder.
+ *
+ * Uses the same server-component inline-SVG <Wordmark> the operations
+ * console and client portal use, so the MALINOIS lockup picks up the
+ * page-level Montserrat webfont (sidesteps the <img> font isolation issue).
  *
  * F1 replaces this with the real flow (Clerk/Auth0/WorkOS SSO) and a server
  * middleware that issues a httpOnly cookie session.
@@ -11,10 +15,10 @@ import { BrandMark } from '@/components/shell/BrandMark';
 export default function LoginPage() {
   return (
     <div className="flex flex-col items-center gap-9">
-      <div className="flex flex-col items-center gap-3">
-        <BrandMark size="lg" />
+      <div className="flex flex-col items-center gap-4">
+        <Wordmark variant="dark" className="h-[96px] shrink-0" />
         <span className="text-micro uppercase tracking-micro text-text-muted">
-          RVF Malinois · Well Testing
+          Monitoring &amp; Predictive Intelligence
         </span>
       </div>
       <Card className="w-[360px]">
