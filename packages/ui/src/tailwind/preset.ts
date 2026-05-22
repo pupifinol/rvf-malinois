@@ -69,6 +69,12 @@ const preset: Partial<Config> = {
       'series-4': 'var(--series-4)',
       'series-5': 'var(--series-5)',
       'series-6': 'var(--series-6)',
+
+      // Three-phase separator semantics — gas/oil/water phase colors.
+      // Used by the separator diagram, composition bars, level legends.
+      'phase-gas': 'var(--phase-gas)',
+      'phase-oil': 'var(--phase-oil)',
+      'phase-water': 'var(--phase-water)',
     },
 
     spacing: {

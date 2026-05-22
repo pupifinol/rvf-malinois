@@ -2,21 +2,15 @@
 
 import { cn } from '@rvf/ui';
 import {
-  Activity,
   AlertTriangle,
-  BarChart3,
-  Boxes,
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
   FileText,
-  Gauge,
   LayoutDashboard,
-  LineChart,
   type LucideIcon,
   Radio,
-  ScrollText,
-  Wrench,
+  Server,
+  Settings,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -43,17 +37,11 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/operations', label: 'Operations', icon: LayoutDashboard },
-  { href: '/multiwell', label: 'Multiwell', icon: Gauge },
-  { href: '/wells', label: 'Wells', icon: Activity },
-  { href: '/jobs', label: 'Jobs', icon: ClipboardList },
-  { href: '/equipment', label: 'Equipment', icon: Wrench },
+  { href: '/units', label: 'Units', icon: Server },
   { href: '/sensors', label: 'Sensors', icon: Radio },
   { href: '/alarms', label: 'Alarms', icon: AlertTriangle },
-  { href: '/trends', label: 'Trends', icon: LineChart },
-  { href: '/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/reports', label: 'Reports', icon: FileText },
-  { href: '/audit', label: 'Audit', icon: ScrollText },
-  { href: '/catalog', label: 'Catalog', icon: Boxes },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export const Sidebar = () => {

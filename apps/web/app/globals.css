@@ -42,3 +42,25 @@
     color: var(--text-on-accent);
   }
 }
+
+/*
+ * Process-flow marching-ants indication for the unit twin diagram (/units).
+ *
+ * Restrained motion only — a 3.2 s linear stroke-dashoffset cycle, just
+ * fast enough to communicate flow direction. The animation is removed
+ * entirely under prefers-reduced-motion to keep the screen safe for
+ * extended operator shifts.
+ */
+@keyframes flow-march {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.flow-anim {
+  animation: flow-march 3.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-anim {
+    animation: none;
+  }
+}

@@ -20,7 +20,7 @@ import { Wordmark } from '@/components/shell/Wordmark';
 export default function RvfConsoleLayout({ children }: { children: ReactNode }) {
   return (
     <Providers theme="dark">
-      <AppShell wordmark={<Wordmark variant="dark" className="h-[56px] shrink-0" />}>
+      <AppShell wordmark={<Wordmark variant="dark" className="h-[52px] shrink-0" />}>
         {children}
       </AppShell>
     </Providers>

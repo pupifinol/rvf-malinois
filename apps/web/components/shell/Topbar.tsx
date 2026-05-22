@@ -48,7 +48,10 @@ export const Topbar = ({ wordmark }: TopbarProps) => {
     <header
       className={cn(
         'h-[80px] shrink-0',
-        'bg-surface border-b border-border-subtle',
+        // Canvas fill (matte graphite/navy) instead of surface — drops the
+        // "glowing band" feel in favor of a quiet control-room header. Same
+        // height, layout, and spacing as before.
+        'bg-canvas border-b border-border-subtle',
         'flex items-center justify-between gap-6 px-6',
       )}
     >

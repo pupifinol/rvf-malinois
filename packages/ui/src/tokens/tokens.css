@@ -73,6 +73,14 @@
   --series-5: #8c7cbb;
   --series-6: #4ca39a;
 
+  /* ---- Three-phase separator semantics ------------------------------
+   * Fixed across the platform so any vessel visualization (separator,
+   * sand trap, heater) speaks the same color language. ISA-101: phase
+   * carries meaning, not decoration. */
+  --phase-gas: #d4b840; /* desaturated yellow — gas band, top of vessel */
+  --phase-oil: #2a1d12; /* very dark brown — crude/oil band, mid-vessel */
+  --phase-water: #2a6fb8; /* industrial blue — water band, bottom of vessel */
+
   /* ---- Quality of data --------------------------------------------- */
   --quality-good: var(--text-primary);
   --quality-estimated: var(--status-info);
@@ -123,6 +131,11 @@
   --series-4: #8c3d63;
   --series-5: #5746a0;
   --series-6: #1f7e74;
+
+  /* ---- Three-phase separator semantics ------------------------------ */
+  --phase-gas: #b89318;
+  --phase-oil: #2a1d12;
+  --phase-water: #1f5fa8;
 
   /* ---- Quality ------------------------------------------------------- */
   --quality-good: var(--text-primary);
