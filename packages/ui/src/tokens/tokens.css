@@ -81,6 +81,16 @@
   --phase-oil: #2a1d12; /* very dark brown — crude/oil band, mid-vessel */
   --phase-water: #2a6fb8; /* industrial blue — water band, bottom of vessel */
 
+  /* ---- ISA-18.2 alarm priority palette ------------------------------
+   * Maps the four standard alarm-priority levels to the platform's
+   * canonical status palette where possible. MEDIUM gets its own token
+   * because the standard distinguishes P2 amber from P3 yellow, and
+   * `--status-warn` can't carry both meanings without ambiguity. */
+  --alarm-urgent: var(--status-alarm); /* P1 emergency */
+  --alarm-high: var(--status-warn); /* P2 high */
+  --alarm-medium: #c8a528; /* P3 medium — muted yellow */
+  --alarm-low: var(--status-info); /* P4 low */
+
   /* ---- Quality of data --------------------------------------------- */
   --quality-good: var(--text-primary);
   --quality-estimated: var(--status-info);
@@ -136,6 +146,12 @@
   --phase-gas: #b89318;
   --phase-oil: #2a1d12;
   --phase-water: #1f5fa8;
+
+  /* ---- ISA-18.2 alarm priority palette ------------------------------ */
+  --alarm-urgent: var(--status-alarm);
+  --alarm-high: var(--status-warn);
+  --alarm-medium: #b08818;
+  --alarm-low: var(--status-info);
 
   /* ---- Quality ------------------------------------------------------- */
   --quality-good: var(--text-primary);

@@ -75,6 +75,13 @@ const preset: Partial<Config> = {
       'phase-gas': 'var(--phase-gas)',
       'phase-oil': 'var(--phase-oil)',
       'phase-water': 'var(--phase-water)',
+
+      // ISA-18.2 alarm priority palette — used by the /alarms screen
+      // and any future alarm chip elsewhere on the platform.
+      'alarm-urgent': 'var(--alarm-urgent)',
+      'alarm-high': 'var(--alarm-high)',
+      'alarm-medium': 'var(--alarm-medium)',
+      'alarm-low': 'var(--alarm-low)',
     },
 
     spacing: {
