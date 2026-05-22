@@ -1,40 +1,49 @@
-import { cn } from '@rvf/ui';
-import { Download, FileText, Plus } from 'lucide-react';
+'use client';
 
-import {
-  formatKb,
-  queue,
-  reports,
-  templates,
-  type ReportRecord,
-  type ReportState,
-} from '@/components/reports/data/reports.mock';
+import { useMemo, useState } from 'react';
+
+import { activity, queue, reports, templates } from '@/components/reports/data/reports.mock';
+import { GenerationQueuePanel } from '@/components/reports/GenerationQueuePanel';
+import { ReportActionsPanel } from '@/components/reports/ReportActionsPanel';
+import { ReportActivityPanel } from '@/components/reports/ReportActivityPanel';
+import { ReportDetailPreview } from '@/components/reports/ReportDetailPreview';
+import { ReportsArchiveTable } from '@/components/reports/ReportsArchiveTable';
+import { ReportStatusStrip } from '@/components/reports/ReportStatusStrip';
+import { ReportTemplatesPanel } from '@/components/reports/ReportTemplatesPanel';
 import { PageHeader, StatusChip } from '@/components/shell/PageHeader';
-import { Panel } from '@/components/shell/Panel';
 
 /**
- * Reports — Operational Deliverables.
+ * Reports — Operational Deliverables Archive.
  *
- * The archive + generation pipeline for end-of-job well-test reports,
- * daily-ops summaries, and other client deliverables. Reports here are
- * produced from the same telemetry stream the Operations Console renders.
+ * Layout (tuned for a 16:9 control room monitor, audit-document feel):
+ *   1. PageHeader + at-a-glance chips
+ *   2. 6-cell ReportStatusStrip — Today / Ready / In Pipeline / Failed /
+ *      Pending Approval / Avg Generation
+ *   3. Main 2-column grid:
+ *        Left:  ReportsArchiveTable (selectable rows) + ReportDetailPreview
+ *        Right: Generation Queue · Templates · Recent Activity · Actions
  *
- * Visual language inherited from /operations.
+ * Selection lives in client state so the archive can drive the detail
+ * preview without a round-trip. Every panel reads from the same
+ * `reports` / `queue` / `templates` / `activity` mocks; when F4 wires
+ * the live generation pipeline, the mocks are swapped and nothing else
+ * has to change.
  */
-const stateStyles: Record<ReportState, { dot: string; text: string; label: string }> = {
-  QUEUED: { dot: 'bg-status-stale', text: 'text-status-stale', label: 'Queued' },
-  GENERATING: { dot: 'bg-status-warn', text: 'text-status-warn', label: 'Generating' },
-  READY: { dot: 'bg-status-info', text: 'text-status-info', label: 'Ready' },
-  DELIVERED: { dot: 'bg-status-normal', text: 'text-status-normal', label: 'Delivered' },
-};
-
 export default function ReportsPage() {
+  const [selectedId, setSelectedId] = useState<string>(reports[0]?.id ?? '');
+
+  const selected = useMemo(
+    () => reports.find((r) => r.id === selectedId) ?? reports[0],
+    [selectedId],
+  );
+
   const ready = reports.filter((r) => r.state === 'READY').length;
-  const generating = queue.filter((q) => q.state === 'GENERATING').length;
-  const queued = queue.filter((q) => q.state === 'QUEUED').length;
+  const pendingApproval = reports.filter((r) => r.state === 'PENDING_APPROVAL').length;
+  const inPipeline = queue.length;
+  const failed = reports.filter((r) => r.state === 'FAILED').length;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2.5">
       <PageHeader
         title="Operational Reports"
         subtitle="Well-test deliverables, daily ops summaries, and audit archives"
@@ -42,206 +51,42 @@ export default function ReportsPage() {
           <>
             <StatusChip>{reports.length} Archived</StatusChip>
             <StatusChip tone={ready > 0 ? 'info' : 'neutral'}>{ready} Ready</StatusChip>
-            <StatusChip tone={generating > 0 ? 'warn' : 'neutral'}>
-              {generating + queued} In Pipeline
+            <StatusChip tone={inPipeline > 0 ? 'warn' : 'neutral'}>
+              {inPipeline} In Pipeline
             </StatusChip>
+            <StatusChip tone={pendingApproval > 0 ? 'warn' : 'neutral'}>
+              {pendingApproval} Pending
+            </StatusChip>
+            {failed > 0 ? <StatusChip tone="alarm">{failed} Failed</StatusChip> : null}
           </>
         }
       />
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4">
-        <Panel
-          title="Reports Archive"
-          meta={
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-border-subtle rounded-xs text-text-secondary hover:border-border-strong hover:text-text-primary transition-colors duration-fast"
-            >
-              <Plus className="w-3 h-3" aria-hidden="true" />
-              <span className="text-micro uppercase tracking-micro font-semibold">Generate</span>
-            </button>
-          }
-        >
-          <div className="overflow-x-auto -m-1 p-1">
-            <table className="w-full text-xs tabular-nums">
-              <thead>
-                <tr className="text-micro uppercase tracking-micro text-text-muted">
-                  <Th>Report</Th>
-                  <Th>Kind</Th>
-                  <Th>Well</Th>
-                  <Th>Unit</Th>
-                  <Th align="right">Generated</Th>
-                  <Th align="right">Size</Th>
-                  <Th align="right">State</Th>
-                  <Th align="right"> </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {reports.map((r) => (
-                  <ReportRow key={r.id} report={r} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
+      <ReportStatusStrip reports={reports} queue={queue} />
 
-        <aside className="flex flex-col gap-3 2xl:max-w-[320px]">
-          <Panel title="Generation Queue" meta={<span>{queue.length} pending</span>}>
-            <ul className="flex flex-col gap-2">
-              {queue.map((q) => {
-                const ss = stateStyles[q.state];
-                return (
-                  <li key={q.id} className="flex flex-col gap-0.5">
-                    <span className="flex items-center justify-between gap-2 text-xs">
-                      <span className="text-text-primary truncate">{q.label}</span>
-                      <span
-                        className={cn('text-micro uppercase tracking-micro font-semibold', ss.text)}
-                      >
-                        {ss.label}
-                      </span>
-                    </span>
-                    <span className="text-micro uppercase tracking-micro text-text-muted">
-                      ETA {q.etaMin} min
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </Panel>
+      <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_minmax(0,288px)] gap-2.5">
+        <div className="flex flex-col gap-2.5 min-w-0">
+          <ReportsArchiveTable
+            rows={reports}
+            selectedId={selected?.id ?? ''}
+            onSelect={setSelectedId}
+          />
+          {selected ? (
+            <ReportDetailPreview report={selected} />
+          ) : (
+            <div className="bg-surface border border-border-subtle rounded-sm p-4 text-xs text-text-muted">
+              Select a report from the archive to preview its sections and metadata.
+            </div>
+          )}
+        </div>
 
-          <Panel title="Report Templates" meta={<span>{templates.length}</span>}>
-            <ul className="flex flex-col">
-              {templates.map((t) => (
-                <li
-                  key={t.id}
-                  className="flex items-center justify-between py-2 border-b border-border-subtle last:border-b-0"
-                >
-                  <span className="flex items-center gap-2 text-xs">
-                    <FileText className="w-3.5 h-3.5 text-text-secondary" aria-hidden="true" />
-                    <span className="text-text-primary">{t.name}</span>
-                  </span>
-                  <span className="text-micro uppercase tracking-micro text-text-muted tabular-nums">
-                    {t.updated}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-
-          <Panel title="Recent Activity">
-            <ul className="flex flex-col gap-2 text-xs">
-              <ActivityLine time="08 min ago" text="r-1054 marked READY · J-0421" tone="info" />
-              <ActivityLine time="4 h ago" text="r-1053 delivered to client portal" tone="normal" />
-              <ActivityLine time="1 d ago" text="r-1050 audit closed by h.finol" tone="normal" />
-            </ul>
-          </Panel>
+        <aside className="flex flex-col gap-2.5 2xl:max-w-[288px]">
+          <GenerationQueuePanel queue={queue} />
+          <ReportTemplatesPanel templates={templates} />
+          <ReportActivityPanel entries={activity} />
+          <ReportActionsPanel />
         </aside>
       </div>
     </div>
   );
 }
-
-const ReportRow = ({ report }: { report: ReportRecord }) => {
-  const ss = stateStyles[report.state];
-  const downloadable = report.state === 'READY' || report.state === 'DELIVERED';
-  return (
-    <tr className="hover:bg-surface-raised/40 transition-colors duration-fast">
-      <Td className="font-mono text-text-primary">{report.id}</Td>
-      <Td className="text-text-secondary">{report.kind}</Td>
-      <Td className="font-mono text-text-primary">{report.well}</Td>
-      <Td className="text-text-secondary">{report.unit}</Td>
-      <Td align="right" className="text-text-secondary">
-        {report.generatedAt}
-      </Td>
-      <Td align="right" className="text-text-secondary">
-        {formatKb(report.sizeKb)}
-      </Td>
-      <Td align="right">
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 font-semibold uppercase tracking-micro',
-            ss.text,
-          )}
-        >
-          <span
-            aria-hidden="true"
-            className={cn('inline-block w-1.5 h-1.5 rounded-full', ss.dot)}
-          />
-          {ss.label}
-        </span>
-      </Td>
-      <Td align="right">
-        {downloadable ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-text-secondary hover:text-text-primary transition-colors duration-fast"
-            aria-label={`Download ${report.id}`}
-          >
-            <Download className="w-3.5 h-3.5" aria-hidden="true" />
-          </button>
-        ) : (
-          <span className="text-text-muted">—</span>
-        )}
-      </Td>
-    </tr>
-  );
-};
-
-const Th = ({
-  children,
-  align = 'left',
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-}) => (
-  <th
-    className={cn(
-      'px-2 py-2 font-semibold border-b border-border-subtle',
-      align === 'right' ? 'text-right' : 'text-left',
-    )}
-  >
-    {children}
-  </th>
-);
-
-const Td = ({
-  children,
-  align = 'left',
-  className,
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-  className?: string;
-}) => (
-  <td
-    className={cn(
-      'px-2 py-2 border-b border-border-subtle last:border-b-0',
-      align === 'right' ? 'text-right' : 'text-left',
-      className,
-    )}
-  >
-    {children}
-  </td>
-);
-
-const ActivityLine = ({
-  time,
-  text,
-  tone,
-}: {
-  time: string;
-  text: string;
-  tone: 'info' | 'normal' | 'warn';
-}) => {
-  const toneClass = {
-    info: 'border-l-status-info',
-    normal: 'border-l-status-normal',
-    warn: 'border-l-status-warn',
-  }[tone];
-  return (
-    <li className={cn('pl-2 border-l-2 flex flex-col', toneClass)}>
-      <span className="text-text-primary">{text}</span>
-      <span className="text-micro uppercase tracking-micro text-text-muted">{time}</span>
-    </li>
-  );
-};

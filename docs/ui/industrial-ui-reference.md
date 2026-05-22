@@ -3,13 +3,26 @@
 > **Status:** Phase F1/F2 visual baseline. Frozen.
 > **Companion document:** [`industrial-design-system.md`](./industrial-design-system.md) — the long-form design system (~37 sections, in Spanish). This file is the short operational reference and the freeze record.
 
+## Freeze ledger
+
+| Surface | Status | Frozen on |
+|---|---|---|
+| `/operations` | V1 Frozen Baseline | 2026-05-22 |
+| `/units` | V1 Frozen Baseline | 2026-05-22 |
+| `/sensors` | V1 Frozen Baseline | 2026-05-22 |
+| `/alarms` | V1 Frozen Baseline | 2026-05-22 |
+| `/reports` | V1 Frozen Baseline | 2026-05-22 |
+| `/settings` | Pending | — |
+
+After freeze, edits to a baseline surface are limited to: data integration, backend connectivity, responsive fixes, bug fixes, performance work. **No further aesthetic redesigns** unless explicitly requested.
+
 ---
 
 ## Purpose
 
-The current implementations of `/operations`, `/units`, and `/sensors` are the **official RVF Malinois visual baseline** for all future industrial UI work. They are not to be redesigned. New surfaces (`/alarms`, `/reports`, `/settings`, and any future operational module) must inherit their spacing, hierarchy, panel structure, telemetry density, and operational visual language.
+The current implementations of `/operations`, `/units`, `/sensors`, `/alarms`, and `/reports` are the **official RVF Malinois visual baseline** for all future industrial UI work. They are not to be redesigned. New surfaces (`/settings` and any future operational module) must inherit their spacing, hierarchy, panel structure, telemetry density, and operational visual language.
 
-When a question comes up about "how should this new screen look?", the answer is: **open `/operations`, `/units`, or `/sensors` and use that as the template.** This document explains *why* that template looks the way it does.
+When a question comes up about "how should this new screen look?", the answer is: **open the closest baseline screen and use that as the template.** This document explains *why* that template looks the way it does.
 
 ---
 
@@ -274,6 +287,85 @@ Use as the template for any *single-entity deep-dive* surface (e.g. a future `/u
 
 Use as the template for any *instrument / device / asset inventory* surface (e.g. a future `/wells`, `/equipment`, or `/audit`).
 
+### `/alarms` — Official Alarm Operations Center Reference
+
+**Status:** V1 Frozen Baseline — 2026-05-22.
+**Mockup:** [`apps/web/public/mockups/operations-alarms-screen-reference-v1.png`](../../apps/web/public/mockups/operations-alarms-screen-reference-v1.png)
+**Implementation:** [`apps/web/app/(rvf-console)/alarms/page.tsx`](../../apps/web/app/(rvf-console)/alarms/page.tsx)
+
+**Main panels (top → bottom, left → right):**
+
+1. `CriticalAlarmBanner` — single-line strip surfacing the highest-priority active alarm. Tonal `bg-gradient-to-r from-status-alarm/18 …` + 3-px alarm-toned left stripe; filled URGENT chip; centered inline `Active for` timer + Acknowledge button.
+2. `AlarmSeverityCards` — six compact counters (Urgent / High / Medium / Low / Acknowledged / Ack Rate). Single-row dense layout: label-over-state on the left, large number on the right baseline. Per-card 2-px accent stripe.
+3. `AlarmTrendCard` — secondary widget at ~240 px wide. 28 px sparkline, opacity 0.65, no axis chrome. Reads as supporting telemetry, never as a hero chart.
+4. `AlarmFilterBar` — segmented `ALL / ACTIVE / ACKED / CLEARED / URGENT / HIGH / MEDIUM / LOW` tabs above a row of subtle Unit / Source / State `<select>` dropdowns.
+5. `ActiveAlarmsTable` — primary operational area. Columns: Priority · Title · Source · Unit · Raised · Active For · State · Ack. 3-px priority stripe per row; URGENT+ACTIVE rows pick up a faint tonal wash; ACKED rows step the title back to `text-text-secondary`.
+6. `AlarmHistoryTable` — lower-emphasis archive under the active queue (`opacity-90`, `max-h-[168px]`).
+7. `RealtimeAlarmFeed` — right-rail SCADA event log. Severity icon in a tonally-tinted chip + uppercase title + `unit · source` + monospace timestamp. Single pulsing "Live" dot is the only animation on the page.
+8. `AlarmQuickActions` — six restrained icon-chip buttons (Ack All · Ack Low · Silence Horn · Open Unit · Export · Create Ticket).
+
+**Visual design principles that lock in here:**
+
+- **ISA-18.2 four-tier priority palette** introduced as platform tokens — `--alarm-urgent` (red) / `--alarm-high` (amber) / `--alarm-medium` (muted yellow) / `--alarm-low` (blue). MEDIUM is the only new color hex; the rest alias the canonical `--status-*` palette.
+- The shared `<AlarmPriorityChip>` is the single source of truth for priority rendering. Every alarm table + the realtime feed consume the same `PRIORITY_STYLE` map.
+- Filled chip for URGENT in the banner is the most saturated element on the page — used exactly once.
+- Severity-toned `border-l-2` accent stripes; never `bg-status-X` filling an entire row.
+- One pulsing dot ("Live" in the feed) and CSS-transition row hovers are the only motion.
+
+Use as the template for any *event-stream operational console* surface (a future SCADA control surface, dispatch board, or shift-handover screen).
+
+### `/reports` — Official Operational Deliverables & Audit Archive Reference
+
+**Status:** V1 Frozen Baseline — 2026-05-22.
+**Mockup:** _(no approved mockup; the current implementation is itself the visual baseline.)_
+**Implementation:** [`apps/web/app/(rvf-console)/reports/page.tsx`](../../apps/web/app/(rvf-console)/reports/page.tsx)
+
+**Main panels (top → bottom, left → right):**
+
+1. `ReportStatusStrip` — 6-cell counter strip (Reports Today / Ready / In Pipeline / Failed / Pending Approval / Avg Generation). Same label-over-value rhythm as `/units`' `<UnitStatusBar>` and `/sensors`' `<SensorStatusStrip>`.
+2. `ReportsArchiveTable` — primary operational area. 13 columns including operational rollups (Duration, Alarms, Avg Pressure psi, Avg Water Cut %, Approved By). Inline `+ Generate` button in the panel meta with refined outline treatment. Selectable rows drive the detail preview below.
+3. `ReportDetailPreview` — audit-style document preview. Left column: three banded `dl` grids (Provenance · Operational Summary · File) separated by thin `border-b` rules with generous `gap-y-3` row spacing. Right column: numbered "Included Sections" list with `§01 / §02 / …` and a green check per rendered section. Reads as a document handoff card, not a dashboard widget.
+4. `GenerationQueuePanel` — right-rail pipeline view. Each item: kind dot + label + state, then a `h-1.5` progress bar (`bg-canvas` track + `bg-status-warn` or `bg-text-secondary/50` fill), then stage label + `%`+`ETA Nm` line. Subtle, no glow.
+5. `ReportTemplatesPanel` — versioned template list. Each row shows kind-dot + name + version (mono primary text), kind · owner (with owner promoted to `text-text-primary`), and `lastUpdated · used lastUsed`.
+6. `ReportActivityPanel` — audit-log timeline. Fixed-width monospace timestamp + action + `reportId · user` per row. Left accent border by tone. **No "Live" indicator** — this is a read-mostly audit ledger, not a live stream.
+7. `ReportActionsPanel` — six operator actions. Only Generate Report and Send to Client Portal carry accent stripes (brand-accent / info); the rest stay neutral.
+
+**Semantic color usage on `/reports`:**
+
+| State | Token | Where it appears |
+|---|---|---|
+| `READY` | `--status-info` (blue) | Newly-rendered report awaiting review |
+| `GENERATING` | `--status-warn` (amber) | In-flight queue items + progress bar fill |
+| `PENDING_APPROVAL` | `--status-warn` (amber) | Stripe on the row + "Pending" approver text |
+| `DELIVERED` | `--status-normal` (green) | Sent to client portal, sealed |
+| `FAILED` | `--status-alarm` (red) | Stripe on the row + state badge |
+| `QUEUED` | `--status-stale` (gray) | Waiting on the pipeline |
+
+**Report-kind dot colors** (`ReportKindChip`, also driving `KIND_DOT` reused by Templates and Queue):
+
+- Well Test → `--status-info` (blue) — the headline deliverable.
+- Daily Ops → `--text-secondary` (neutral muted) — routine.
+- Buildup → `--series-5` (calm purple) — distinct from process tones so it never reads as alarm.
+- Audit → `--status-stale` (gray) — administrative, low-emphasis.
+- Incident → `--status-alarm` (red) — incidents inherit the alarm palette.
+
+**Visual design principles that lock in here:**
+
+- **Reports is intentionally calmer than Alarms.** Where `/alarms` has saturated gradients, pulsing indicators, and per-row tonal washes, `/reports` has muted chips, no live pulse, and neutral row backgrounds. The screen reads as an archive, not a control surface.
+- **Archive readability + audit traceability are the priorities.** Every operational decision (volume of breathing room in the detail preview, monospace tabular timestamps in the activity log, versioned template metadata, sealed/open audit indicator) optimizes for "can a reviewer trust this in three months?" not "can an operator react in three seconds?"
+- **Only `FAILED` and `PENDING_APPROVAL` rows use severity stripes.** `READY`, `DELIVERED`, `QUEUED`, `GENERATING` rows stay neutral. The archive reads peaceful by default; abnormal states earn the color.
+- **Minimal motion.** The only animation on the page is the CSS-width transition on the progress bar and the standard `transition-colors duration-fast` on row hovers. No "Live" pulse, no spinners, no skeleton loaders, no counter rolls.
+- **Density inherits from `/alarms`.** All panels use `<Panel density="compact">`; container gap is `gap-2.5`; table cell padding is `px-2 py-1.5`. Same spacing rhythm — the screen feels like the same product, just at a different tempo.
+
+**Relationship with the other baselines:**
+
+| `/operations` | Reports inherits the PageHeader-plus-StatusChip cluster pattern and the right-rail Panel composition. |
+| `/units` | Reports inherits the `<UnitStatusBar>`-style 6-cell counter strip pattern (`ReportStatusStrip`) and the three-band-`dl` detail-preview pattern (`ReportDetailPreview` mirrors `SensorDetailPreview`). |
+| `/sensors` | Reports inherits the sticky-header scrollable table pattern, the `KIND_DOT` lookup approach (mirrors the `SensorKind` dot map), and the `density="compact"` Panel rhythm. |
+| `/alarms` | Reports inherits the compact button styling (`AlarmQuickActions` → `ReportActionsPanel`), the `border-l-[3px]`-on-tone row treatment (used sparingly), and the right-rail proportions (`max-w-[288px]`, ~12 px tighter than alarms to give the archive table the freed width). |
+
+Use as the template for any *document archive / audit deliverable / regulator-facing* surface (e.g. a future `/audit`, `/compliance`, or `/handovers`).
+
 ---
 
 ## H. Screenshot Reference Folder
@@ -285,6 +377,8 @@ All approved visual references live in `apps/web/public/mockups/`. Filenames are
 | `operations-reference-v1.png` | `/operations` frozen baseline |
 | `operations-units-screen-reference-v1.png` | `/units` frozen baseline |
 | `sensors-screen-reference-v1.png` | `/sensors` frozen baseline |
+| `operations-alarms-screen-reference-v1.png` | `/alarms` frozen baseline |
+| _(none yet)_ | `/reports` — the current implementation is the visual baseline |
 
 When a future iteration produces a v2 of any of these, **add a new file** (`*-v2.png`); do not overwrite v1. The version pin in the filename is the freeze record.
 
@@ -292,45 +386,7 @@ When a future iteration produces a v2 of any of these, **add a new file** (`*-v2
 
 ## I. Future Screen Guidance
 
-The same rules apply to every surface that doesn't exist yet. The guidance below identifies which baseline screen each future surface should clone, plus the surface-specific notes.
-
-### `/alarms`
-
-**Inherits from:** primarily `/sensors` (event-log discipline + filtered table + selectable rows).
-
-**Layout sketch:**
-
-1. PageHeader: title "Alarm Center" + `<StatusChip>` cluster (active count, by severity).
-2. Status strip: 6–7 cells — Active, Acknowledged, Cleared, By Severity (Critical / High / Medium), Last Hour.
-3. Main grid `[minmax(0,300px) _ 1fr _ minmax(0,300px)]`:
-   - **Left**: AlarmsByCategoryPanel (a rollup mirroring `InstrumentationOverviewPanel`'s category cards — group alarms by source: process / sensor / comm / calibration).
-   - **Center**: AlarmsTable with tabs (`ALL` / `ACTIVE` / `ACKNOWLEDGED` / `HISTORY`), the same filter row (Unit / Severity / Source), sticky-header scrollable table. Columns: Time · Severity · Tag · Unit · Description · State · Operator.
-   - **Right rail**: Acknowledge Quick Actions (mirroring `QuickActionsPanel`); Comm Health; Top Repeat Offenders; Shift Handover Notes.
-4. Bottom row `[1fr _ 1fr]`: AlarmDetailPreview (selected alarm) + AlarmEventTimeline (acknowledgement / clear / suppression events).
-
-**Key disciplines:**
-
-- Severity colors map directly to status tokens: Critical = `--status-critical`, High = `--status-alarm`, Medium = `--status-warn`, Low = `--status-info`. Never invent new severities.
-- Suppressed alarms render at `--status-stale` opacity; suppression is a first-class state.
-- Acknowledgement is a left-side action only — never a hover action, never a sweep gesture.
-
-### `/reports`
-
-**Inherits from:** mostly `/operations` for the header + right rail, plus `/sensors` for the inventory-table pattern when listing past reports.
-
-**Layout sketch:**
-
-1. PageHeader: title "Operational Reports" + chips ("This Month: 42", "Pending: 3").
-2. Main grid `[minmax(0,1fr) _ 320px]`:
-   - **Left**: ReportsTable (sticky-header table, kind tabs: `WELL TESTS` / `DAILY` / `INCIDENT` / `CALIBRATION` / `AUDIT`; filters: Unit / Author / Date range / State). Row click → `ReportPreview` below.
-   - **Right rail**: ReportTemplates (compact list of reusable templates), Comm Health (always present), Generation Queue (in-flight exports), Quick Actions (Generate · Schedule · Export Archive · Open Template Library).
-3. Bottom row: ReportPreview (selected report metadata + key telemetry summary + sparkline) + ReportEvents (generation / approval / distribution audit log).
-
-**Key disciplines:**
-
-- Report state lives in the same semantic tokens: DRAFT = `--status-info`, REVIEW = `--status-warn`, APPROVED = `--status-normal`, RETRACTED = `--status-alarm`.
-- Author and "approved by" fields use the same `font-mono` initials convention as the calibrations table on `/units`.
-- Date columns use the canonical ISO `yyyy-mm-dd` format. No locale-formatted dates anywhere on the platform — operators across shifts read in a single rhythm.
+The same rules apply to every surface that doesn't exist yet. The guidance below identifies which baseline screen each future surface should clone, plus the surface-specific notes. (`/alarms` and `/reports` were originally documented in this section; they are now frozen baselines and live under §G.)
 
 ### `/settings`
 
@@ -384,17 +440,27 @@ When adding a new screen, also build for production locally (`pnpm --filter web 
 - `/operations` layout, MultiphaseUnitCard composition, Live Trends panel
 - `/units` layout, SeparatorDiagram geometry, UnitSelector pattern, phase colors
 - `/sensors` layout, InstrumentationOverview pattern, inventory table tabs+filters, SCADA event log row shape
-- The semantic color palette (status-normal/warn/alarm/critical/stale/info, brand-primary/accent, phase-gas/oil/water)
+- `/alarms` layout, CriticalAlarmBanner composition, 6-cell severity counter row, ActiveAlarmsTable column set, RealtimeAlarmFeed row shape, ISA-18.2 priority tokens (`--alarm-urgent / -high / -medium / -low`)
+- `/reports` layout, 6-cell ReportStatusStrip, ReportsArchiveTable 13-column set, ReportDetailPreview three-band metadata + sections list, GenerationQueuePanel progress-bar treatment, ReportKindChip `KIND_DOT` map
+- The semantic color palette (status-normal/warn/alarm/critical/stale/info, brand-primary/accent, phase-gas/oil/water, alarm-urgent/high/medium/low)
 - The Panel + PageHeader + StatusChip primitives
 - The typography hierarchy in §B
 - The sidebar + topbar shell
 
-**Open for evolution (with care):**
+**Open for evolution after freeze (data + plumbing only):**
 
-- Adding new surface-specific components inside the established Panel system
-- Adding new sensor kinds (extend `SensorKind` + add to `SENSOR_CATEGORIES`)
-- Adding new chart series via the existing `series-N` palette (or a new token if absolutely required)
-- Wiring the live WebSocket telemetry stream into the existing mock shapes (no presentation changes expected)
-- Localization of operator-facing copy (the token system + iconography stay constant)
+- Data integration: replacing the mock arrays with live API / WebSocket sources behind the same component contracts.
+- Backend connectivity: wiring `onAck`, `onSelect`, `onGenerate`, `onAction` handlers to real mutation services.
+- Responsive fixes: collapsing the right rail at narrower breakpoints, ensuring table horizontal scroll behaves on field tablets.
+- Bug fixes: anything observable in production that doesn't match the documented behavior.
+- Performance: virtualization on tables once they cross ~200 rows, memoization, code-splitting; visual output must remain identical.
+
+**Open for evolution (with care, beyond the frozen surfaces):**
+
+- Adding new surface-specific components inside the established Panel system.
+- Adding new sensor kinds (extend `SensorKind` + add to `SENSOR_CATEGORIES`).
+- Adding new alarm kinds or stages (extend `AlarmKind` / `ReportStage` enums).
+- Adding new chart series via the existing `series-N` palette (or a new token if absolutely required).
+- Localization of operator-facing copy (the token system + iconography stay constant).
 
 When in doubt: ship a smaller change. The platform's credibility is built on consistency, not novelty.
