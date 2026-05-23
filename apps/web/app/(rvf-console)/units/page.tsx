@@ -8,14 +8,20 @@ import { Panel } from '@/components/shell/Panel';
 import { CalibrationStatusPanel } from '@/components/units-twin/CalibrationStatusPanel';
 import { CompositionBars } from '@/components/units-twin/CompositionBars';
 import { twins } from '@/components/units-twin/data/twin.mock';
+import { EngineeringLimitsPanel } from '@/components/units-twin/EngineeringLimitsPanel';
 import { InstrumentSummaryPanel } from '@/components/units-twin/InstrumentSummaryPanel';
 import { LinePressureCard } from '@/components/units-twin/LinePressureCard';
 import { ProcessTrendsPanel } from '@/components/units-twin/ProcessTrendsPanel';
 import { ProcessVariableTile } from '@/components/units-twin/ProcessVariableTile';
 import { SeparatorDiagram } from '@/components/units-twin/SeparatorDiagram';
+import { TelemetrySourcePanel } from '@/components/units-twin/TelemetrySourcePanel';
+import { UnitAlarmThresholdsPanel } from '@/components/units-twin/UnitAlarmThresholdsPanel';
+import { UnitConfigurationSummary } from '@/components/units-twin/UnitConfigurationSummary';
 import { UnitHealthPanel } from '@/components/units-twin/UnitHealthPanel';
+import { UnitProfileTag } from '@/components/units-twin/UnitProfileTag';
 import { UnitSelector } from '@/components/units-twin/UnitSelector';
 import { UnitStatusBar } from '@/components/units-twin/UnitStatusBar';
+import { UnitTabs } from '@/components/units-twin/UnitTabs';
 
 /**
  * Units — Process Twin (active unit).
@@ -46,13 +52,18 @@ export default function UnitsPage() {
     <div className="flex flex-col gap-3">
       <PageHeader
         title={`Multiphase Unit #${twin.unitNumber}`}
-        subtitle="Process visualization · digital twin"
+        subtitle={`Process visualization · digital twin · ${twin.config.unitClass}`}
         right={
           <>
+            <UnitProfileTag profile={twin.config.profileTag} />
             <UnitSelector units={twins} activeId={twin.id} onSelect={setActiveId} />
             <StatusChip
               tone={
-                twin.status === 'ALARM' ? 'alarm' : twin.status === 'OFFLINE' ? 'stale' : 'info'
+                twin.status === 'ALARM'
+                  ? 'alarm'
+                  : twin.status === 'OFFLINE' || twin.status === 'MAINTENANCE'
+                    ? 'stale'
+                    : 'info'
               }
             >
               {twin.status}
@@ -62,6 +73,8 @@ export default function UnitsPage() {
       />
 
       <UnitStatusBar twin={twin} />
+
+      <UnitTabs active="Overview" />
 
       <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_280px] gap-3">
         {/* ===== Central process visualization ===== */}
@@ -142,6 +155,11 @@ export default function UnitsPage() {
             </Panel>
           </div>
 
+          {/* ===== Per-unit configuration band — identity, thresholds, telemetry ===== */}
+          <UnitConfigurationSummary twin={twin} />
+          <UnitAlarmThresholdsPanel twin={twin} />
+          <TelemetrySourcePanel twin={twin} />
+
           {/* ===== Bottom trends — compact strip ===== */}
           <ProcessTrendsPanel twin={twin} />
         </div>
@@ -149,6 +167,7 @@ export default function UnitsPage() {
         {/* ===== Right operational rail ===== */}
         <aside className="flex flex-col gap-2.5 2xl:max-w-[280px]">
           <UnitHealthPanel twin={twin} />
+          <EngineeringLimitsPanel twin={twin} />
           <InstrumentSummaryPanel twin={twin} />
           <CommunicationHealthPanel />
           <CalibrationStatusPanel twin={twin} />

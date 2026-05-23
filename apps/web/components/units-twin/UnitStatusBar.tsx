@@ -1,18 +1,27 @@
 import { cn } from '@rvf/ui';
 
-import { formatDuration, type UnitTwin } from './data/twin.mock';
+import { formatDuration, type TwinStatus, type UnitTwin } from './data/twin.mock';
 
 /**
- * UnitStatusBar — five-cell status strip directly under the page header.
+ * UnitStatusBar — six-cell status strip directly under the page header.
  *
  * Carries the operator's at-a-glance context: which well, which job, the
- * current operational status of the unit, data quality, and comm health.
- * Same label-over-value pattern as the MultiphaseUnitCard footer on
- * /operations so the operator's eye is already trained on the rhythm.
+ * current operational status of the unit, where it physically lives,
+ * data quality, and comm health. Same label-over-value pattern as the
+ * MultiphaseUnitCard footer on /operations so the operator's eye is
+ * already trained on the rhythm.
  */
 export interface UnitStatusBarProps {
   twin: UnitTwin;
 }
+
+const STATUS_TONE: Record<TwinStatus, string> = {
+  TESTING: 'text-status-info',
+  STABILIZING: 'text-status-warn',
+  ALARM: 'text-status-alarm',
+  OFFLINE: 'text-status-stale',
+  MAINTENANCE: 'text-status-stale',
+};
 
 export const UnitStatusBar = ({ twin }: UnitStatusBarProps) => {
   const qualityTone =
@@ -22,12 +31,7 @@ export const UnitStatusBar = ({ twin }: UnitStatusBarProps) => {
         ? 'text-status-warn'
         : 'text-status-alarm';
 
-  const statusTone = {
-    TESTING: 'text-status-info',
-    STABILIZING: 'text-status-warn',
-    ALARM: 'text-status-alarm',
-    OFFLINE: 'text-status-stale',
-  }[twin.status];
+  const statusTone = STATUS_TONE[twin.status];
 
   const commTone = {
     ONLINE: 'text-status-normal',
@@ -43,7 +47,7 @@ export const UnitStatusBar = ({ twin }: UnitStatusBarProps) => {
       <Cell label="Well" value={twin.well} mono />
       <Cell label="Job" value={twin.job} />
       <Cell label="Status" value={twin.status} valueClass={statusTone} mono />
-      <Cell label="Started" value={twin.startedUtc} mono />
+      <Cell label="Location" value={twin.location.site} />
       <Cell label="Duration" value={formatDuration(twin.durationSec)} mono />
       <Cell
         label="Quality / Comm"

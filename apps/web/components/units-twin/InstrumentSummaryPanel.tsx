@@ -9,7 +9,9 @@ import { Panel } from '@/components/shell/Panel';
  *
  * Mirrors the at-a-glance pattern used by /sensors but scoped to one
  * unit. Each instrument row shows its tag, description, current reading,
- * and health dot.
+ * and health dot. Disabled sensors render with muted typography and an
+ * "OFF" chip so the operator can tell at a glance which sensors are
+ * excluded from this unit's active telemetry + alarm evaluation.
  */
 const healthStyle: Record<Instrument['health'], { text: string; dot: string }> = {
   GOOD: { text: 'text-status-normal', dot: 'bg-status-normal' },
@@ -19,36 +21,61 @@ const healthStyle: Record<Instrument['health'], { text: string; dot: string }> =
 
 export const InstrumentSummaryPanel = ({ twin }: { twin: UnitTwin }) => {
   const total = twin.instruments.length;
-  const healthy = twin.instruments.filter((i) => i.health === 'GOOD').length;
+  const enabled = twin.instruments.filter((i) => i.enabled).length;
+  const healthy = twin.instruments.filter((i) => i.enabled && i.health === 'GOOD').length;
 
   return (
     <Panel
-      title="Instrument Summary"
+      title="Assigned Sensors"
       meta={
-        <span>
-          {healthy}/{total}
+        <span className="font-mono tabular-nums">
+          {healthy}/{enabled} · {total} total
         </span>
       }
     >
       <ul className="flex flex-col text-xs">
         {twin.instruments.map((i) => {
           const h = healthStyle[i.health];
+          const isOff = !i.enabled;
           return (
             <li
               key={i.id}
-              className="flex items-center justify-between gap-2 py-1.5 border-b border-border-subtle last:border-b-0"
+              className={cn(
+                'flex items-center justify-between gap-2 py-1.5 border-b border-border-subtle last:border-b-0',
+                isOff ? 'opacity-60' : '',
+              )}
             >
               <span className="flex items-center gap-2 min-w-0">
                 <span
                   aria-hidden="true"
-                  className={cn('inline-block w-1.5 h-1.5 rounded-full shrink-0', h.dot)}
+                  className={cn(
+                    'inline-block w-1.5 h-1.5 rounded-full shrink-0',
+                    isOff ? 'bg-text-muted' : h.dot,
+                  )}
                 />
-                <span className="font-mono text-text-primary shrink-0">
+                <span
+                  className={cn(
+                    'font-mono shrink-0',
+                    isOff ? 'text-text-muted' : 'text-text-primary',
+                  )}
+                >
                   {i.kind}-{i.loop}
                 </span>
                 <span className="text-text-muted truncate hidden sm:inline">{i.description}</span>
+                {isOff ? (
+                  <span className="inline-flex items-center px-1.5 py-0 rounded-xs border border-border-subtle bg-canvas text-text-muted text-micro uppercase tracking-micro font-bold shrink-0">
+                    Off
+                  </span>
+                ) : null}
               </span>
-              <span className={cn('font-mono tabular-nums shrink-0', h.text)}>{i.reading}</span>
+              <span
+                className={cn(
+                  'font-mono tabular-nums shrink-0',
+                  isOff ? 'text-text-muted' : h.text,
+                )}
+              >
+                {i.reading}
+              </span>
             </li>
           );
         })}

@@ -20,8 +20,8 @@
  * multiphase units via the in-header selector.
  */
 
-export type TwinStatus = 'TESTING' | 'STABILIZING' | 'ALARM' | 'OFFLINE';
-export type InstrumentKind = 'PIT' | 'TIT' | 'FIT' | 'DPIT' | 'LIT' | 'WCIT';
+export type TwinStatus = 'TESTING' | 'STABILIZING' | 'ALARM' | 'OFFLINE' | 'MAINTENANCE';
+export type InstrumentKind = 'PIT' | 'TIT' | 'FIT' | 'DPIT' | 'LIT' | 'WCIT' | 'VIB';
 export type InstrumentHealth = 'GOOD' | 'DEGRADED' | 'BAD';
 
 export interface Instrument {
@@ -32,6 +32,11 @@ export interface Instrument {
   description: string;
   reading: string;
   health: InstrumentHealth;
+  /** Whether this sensor is currently enabled on the unit. Disabled
+   *  sensors stay in the inventory but are excluded from telemetry +
+   *  alarm evaluation. Defaults to true; explicit per-instrument flag
+   *  so the future F2 telemetry pipeline knows what to subscribe to. */
+  enabled: boolean;
 }
 
 export interface ProcessVariable {
@@ -53,10 +58,125 @@ export interface CalibrationEntry {
   dueDays: number;
 }
 
+/**
+ * UnitConfiguration — engineered operational envelope for a single
+ * multiphase well-testing unit. Encodes the per-unit rating plate
+ * (pressure / flow ceilings), the per-unit alarm thresholds (which
+ * may differ across deployed units), and the engineering safety
+ * margins used by the right-rail Engineering Limits panel.
+ *
+ * Lives on UnitTwin because every twin is a physical asset with its
+ * own rating plate — there is no fleet-wide default that applies.
+ * Global defaults in /settings are a fallback for units that have
+ * not been configured; an in-service unit always overrides them.
+ */
+export type UnitProfile = 'HP/HF' | 'MP' | 'LP/LF' | 'CUSTOM';
+export type SafetyState = 'NORMAL' | 'CAUTION' | 'TRIP';
+
+/**
+ * Four-tier threshold band for a single process variable. The window
+ * is symmetric in shape — warningLow and alarmLow bound the low
+ * excursion, warningHigh and alarmHigh bound the high excursion —
+ * so the F2 telemetry evaluator can resolve a reading into one of
+ * five states: low-alarm / low-warn / normal / high-warn / high-alarm.
+ *
+ * `null` on any bound means that side is unbounded (e.g. vibration
+ * has no meaningful low limit; pressure may have no low alarm on a
+ * unit that is never run below atmospheric).
+ */
+export interface ThresholdBand {
+  warningLow: number | null;
+  warningHigh: number | null;
+  alarmLow: number | null;
+  alarmHigh: number | null;
+  /** Engineering unit (psi, bpd, °F, mm/s, …) — kept on the band so
+   *  the UI never has to look it up from the variable definition. */
+  unit: string;
+}
+
+export interface UnitThresholds {
+  pressure: ThresholdBand;
+  flow: ThresholdBand;
+  temperature: ThresholdBand;
+  vibration: ThresholdBand;
+}
+
+/**
+ * Future telemetry source metadata. The F2 pipeline will pick this
+ * up to subscribe to the live source for this unit; in F0/F1 the
+ * fields are display-only and clearly labeled "planned".
+ */
+export type TelemetryProtocol = 'MQTT' | 'MODBUS' | 'OPC-UA' | 'REST' | 'PLC';
+export type TelemetryState = 'PLANNED' | 'PROVISIONED' | 'STREAMING';
+
+export interface TelemetrySource {
+  protocol: TelemetryProtocol;
+  /** Endpoint URI hint (host:port or http URL). */
+  endpoint: string;
+  /** Protocol-specific identifier — MQTT topic, OPC node id, Modbus map. */
+  channel: string;
+  /** Expected sample rate in Hz. */
+  sampleRateHz: number;
+  /** Last observed sample, UTC string. `null` until F2 wires the stream. */
+  lastSampleUtc: string | null;
+  /** Lifecycle state — PLANNED until F2 stands the source up. */
+  state: TelemetryState;
+}
+
+export interface UnitConfiguration {
+  /** Long-form unit class, e.g. "High Pressure / High Flow". */
+  unitClass: string;
+  /** Short ISA-style tag rendered next to the unit title. */
+  profileTag: UnitProfile;
+  /** Equipment descriptor — vessel architecture / process role. */
+  unitType: string;
+  /** Maximum allowable working pressure, psi. */
+  pressureRatingPsi: number;
+  /** Maximum sustained liquid throughput, bpd. */
+  maxLiquidFlowBpd: number;
+  /** Maximum sustained gas throughput, MMSCFD. */
+  maxGasFlowMmscfd: number;
+  /** Maximum process temperature rating, °F. */
+  maxTemperatureF: number;
+  /** Maximum allowable vibration on rotating equipment, mm/s. */
+  maxVibrationMmS: number;
+  /** Separator vessel design pressure, psi. */
+  separatorDesignPsi: number;
+  /** Stale-data trip window, seconds. */
+  telemetryTimeoutSec: number;
+  /** Free-form calibration policy descriptor. */
+  calibrationPolicy: string;
+  /** Per-variable alarm + warning thresholds (4-tier). Used by the
+   *  Unit Alarm Thresholds panel and consumed by F2 telemetry. */
+  thresholds: UnitThresholds;
+  /** Engineering safety margins surfaced in the right rail.
+   *  Each value is a remaining-headroom percentage against the rating. */
+  margins: {
+    pressurePct: number;
+    flowPct: number;
+    temperaturePct: number;
+  };
+  /** Current safety state (rolls up the three margins + alarm state). */
+  safetyState: SafetyState;
+}
+
+/**
+ * Physical location metadata. Promoted to the unit twin (not the
+ * config block) because the unit can be relocated without changing
+ * its engineering envelope.
+ */
+export interface UnitLocation {
+  site: string;
+  area: string;
+  region: string;
+}
+
 export interface UnitTwin {
   /** Stable identifier — used as React key and selector value. */
   id: string;
   unitNumber: number;
+  /** Human-readable name override. Falls back to "MU #{n}" in UI when null. */
+  name: string;
   status: TwinStatus;
   well: string;
   job: string;
@@ -64,6 +184,12 @@ export interface UnitTwin {
   durationSec: number;
   dataQualityPct: number;
   comm: 'ONLINE' | 'DEGRADED' | 'OFFLINE';
+  /** Physical deployment location. */
+  location: UnitLocation;
+  /** Engineered operational envelope. */
+  config: UnitConfiguration;
+  /** Planned/active telemetry source for this unit. */
+  telemetry: TelemetrySource;
 
   /** Separator vessel level distribution — must sum to 100. Used only
    *  for the in-vessel phase visualization, not for any external piping. */
@@ -131,6 +257,7 @@ const drift = (base: number, jitter: number, n = 24): number[] => {
 const unit1: UnitTwin = {
   id: 'unit-1',
   unitNumber: 1,
+  name: 'MU #1 · Heavy-Duty',
   status: 'TESTING',
   well: 'PZ-1023',
   job: 'FLOW TEST',
@@ -138,6 +265,67 @@ const unit1: UnitTwin = {
   durationSec: 2 * 3600 + 14 * 60,
   dataQualityPct: 98.2,
   comm: 'ONLINE',
+
+  location: {
+    site: 'Pampa El Mango · Pad A',
+    area: 'PZ-1023 Wellhead',
+    region: 'RVF Internal',
+  },
+
+  config: {
+    unitClass: 'High Pressure / High Flow',
+    profileTag: 'HP/HF',
+    unitType: 'Three-Phase Horizontal Separator',
+    pressureRatingPsi: 2500,
+    maxLiquidFlowBpd: 5000,
+    maxGasFlowMmscfd: 10,
+    maxTemperatureF: 220,
+    maxVibrationMmS: 12,
+    separatorDesignPsi: 2500,
+    telemetryTimeoutSec: 60,
+    calibrationPolicy: 'ISA-101 · 180-day cycle',
+    thresholds: {
+      pressure: {
+        warningLow: 600,
+        warningHigh: 1800,
+        alarmLow: 400,
+        alarmHigh: 2200,
+        unit: 'psi',
+      },
+      flow: {
+        warningLow: 1200,
+        warningHigh: 4500,
+        alarmLow: 800,
+        alarmHigh: 4900,
+        unit: 'bpd',
+      },
+      temperature: {
+        warningLow: 60,
+        warningHigh: 190,
+        alarmLow: 40,
+        alarmHigh: 215,
+        unit: '°F',
+      },
+      vibration: {
+        warningLow: null,
+        warningHigh: 8,
+        alarmLow: null,
+        alarmHigh: 11,
+        unit: 'mm/s',
+      },
+    },
+    margins: { pressurePct: 22, flowPct: 15, temperaturePct: 28 },
+    safetyState: 'NORMAL',
+  },
+
+  telemetry: {
+    protocol: 'MQTT',
+    endpoint: 'mqtt://edge-01.rvf.local:1883',
+    channel: 'rvf/mu-1/telemetry',
+    sampleRateHz: 1,
+    lastSampleUtc: null,
+    state: 'PLANNED',
+  },
 
   levels: { gasPct: 32, oilPct: 41, waterPct: 27 },
 
@@ -262,6 +450,7 @@ const unit1: UnitTwin = {
       description: 'Inlet Pressure',
       reading: '1,820 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i2',
@@ -270,6 +459,7 @@ const unit1: UnitTwin = {
       description: 'Inlet Temp',
       reading: '156 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i3',
@@ -278,6 +468,7 @@ const unit1: UnitTwin = {
       description: 'Line Pressure',
       reading: '1,650 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i4',
@@ -286,6 +477,7 @@ const unit1: UnitTwin = {
       description: 'Separator Temp',
       reading: '148 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i5',
@@ -294,6 +486,7 @@ const unit1: UnitTwin = {
       description: 'Separator Press',
       reading: '3,150 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i6',
@@ -302,6 +495,7 @@ const unit1: UnitTwin = {
       description: 'Inlet Flow',
       reading: '4,220 bopd',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i7',
@@ -310,6 +504,16 @@ const unit1: UnitTwin = {
       description: 'Differential P.',
       reading: '245 psi',
       health: 'DEGRADED',
+      enabled: true,
+    },
+    {
+      id: 'u1-i16',
+      loop: '700',
+      kind: 'VIB',
+      description: 'Pump Vibration',
+      reading: '4.6 mm/s',
+      health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i8',
@@ -318,6 +522,7 @@ const unit1: UnitTwin = {
       description: 'Vessel Level',
       reading: '68 %',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i9',
@@ -326,6 +531,7 @@ const unit1: UnitTwin = {
       description: 'Gas Out Pressure',
       reading: '1,610 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i10',
@@ -334,6 +540,7 @@ const unit1: UnitTwin = {
       description: 'Gas Out Temp',
       reading: '138 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i11',
@@ -342,6 +549,7 @@ const unit1: UnitTwin = {
       description: 'Gas Flow',
       reading: '6.2 MMSCFD',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i12',
@@ -350,6 +558,7 @@ const unit1: UnitTwin = {
       description: 'Liquid Out Pressure',
       reading: '1,580 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i13',
@@ -358,6 +567,7 @@ const unit1: UnitTwin = {
       description: 'Liquid Out Temp',
       reading: '142 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i14',
@@ -366,6 +576,7 @@ const unit1: UnitTwin = {
       description: 'Liquid Flow',
       reading: '4,252 blpd',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u1-i15',
@@ -374,6 +585,7 @@ const unit1: UnitTwin = {
       description: 'Water Cut',
       reading: '32 %',
       health: 'GOOD',
+      enabled: true,
     },
   ],
 
@@ -389,6 +601,7 @@ const unit1: UnitTwin = {
 const unit2: UnitTwin = {
   id: 'unit-2',
   unitNumber: 2,
+  name: 'MU #2 · Standard Test',
   status: 'STABILIZING',
   well: 'PZ-2041',
   job: 'WELL CLEANUP',
@@ -396,6 +609,67 @@ const unit2: UnitTwin = {
   durationSec: 3600 + 38 * 60,
   dataQualityPct: 95.4,
   comm: 'ONLINE',
+
+  location: {
+    site: 'Pampa El Mango · Pad B',
+    area: 'PZ-2041 Wellhead',
+    region: 'RVF Internal',
+  },
+
+  config: {
+    unitClass: 'Medium Pressure',
+    profileTag: 'MP',
+    unitType: 'Three-Phase Horizontal Separator',
+    pressureRatingPsi: 1800,
+    maxLiquidFlowBpd: 3500,
+    maxGasFlowMmscfd: 6,
+    maxTemperatureF: 200,
+    maxVibrationMmS: 10,
+    separatorDesignPsi: 1800,
+    telemetryTimeoutSec: 60,
+    calibrationPolicy: 'ISA-101 · 180-day cycle',
+    thresholds: {
+      pressure: {
+        warningLow: 500,
+        warningHigh: 1450,
+        alarmLow: 300,
+        alarmHigh: 1700,
+        unit: 'psi',
+      },
+      flow: {
+        warningLow: 900,
+        warningHigh: 3200,
+        alarmLow: 600,
+        alarmHigh: 3450,
+        unit: 'bpd',
+      },
+      temperature: {
+        warningLow: 55,
+        warningHigh: 175,
+        alarmLow: 40,
+        alarmHigh: 195,
+        unit: '°F',
+      },
+      vibration: {
+        warningLow: null,
+        warningHigh: 7,
+        alarmLow: null,
+        alarmHigh: 9.5,
+        unit: 'mm/s',
+      },
+    },
+    margins: { pressurePct: 18, flowPct: 24, temperaturePct: 31 },
+    safetyState: 'CAUTION',
+  },
+
+  telemetry: {
+    protocol: 'MQTT',
+    endpoint: 'mqtt://edge-01.rvf.local:1883',
+    channel: 'rvf/mu-2/telemetry',
+    sampleRateHz: 1,
+    lastSampleUtc: null,
+    state: 'PLANNED',
+  },
 
   levels: { gasPct: 28, oilPct: 38, waterPct: 34 },
 
@@ -520,6 +794,7 @@ const unit2: UnitTwin = {
       description: 'Inlet Pressure',
       reading: '1,640 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i2',
@@ -528,6 +803,7 @@ const unit2: UnitTwin = {
       description: 'Inlet Temp',
       reading: '148 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i3',
@@ -536,6 +812,7 @@ const unit2: UnitTwin = {
       description: 'Line Pressure',
       reading: '1,480 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i4',
@@ -544,6 +821,7 @@ const unit2: UnitTwin = {
       description: 'Separator Temp',
       reading: '138 °F',
       health: 'DEGRADED',
+      enabled: true,
     },
     {
       id: 'u2-i5',
@@ -552,6 +830,7 @@ const unit2: UnitTwin = {
       description: 'Separator Press',
       reading: '2,870 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i6',
@@ -560,6 +839,7 @@ const unit2: UnitTwin = {
       description: 'Inlet Flow',
       reading: '3,680 bopd',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i7',
@@ -568,6 +848,7 @@ const unit2: UnitTwin = {
       description: 'Differential P.',
       reading: '218 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i8',
@@ -576,6 +857,7 @@ const unit2: UnitTwin = {
       description: 'Vessel Level',
       reading: '72 %',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i9',
@@ -584,6 +866,7 @@ const unit2: UnitTwin = {
       description: 'Gas Out Pressure',
       reading: '1,450 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i10',
@@ -592,6 +875,7 @@ const unit2: UnitTwin = {
       description: 'Gas Out Temp',
       reading: '128 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i11',
@@ -600,6 +884,7 @@ const unit2: UnitTwin = {
       description: 'Gas Flow',
       reading: '5.4 MMSCFD',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i12',
@@ -608,6 +893,7 @@ const unit2: UnitTwin = {
       description: 'Liquid Out Pressure',
       reading: '1,420 psi',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i13',
@@ -616,6 +902,7 @@ const unit2: UnitTwin = {
       description: 'Liquid Out Temp',
       reading: '134 °F',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i14',
@@ -624,6 +911,7 @@ const unit2: UnitTwin = {
       description: 'Liquid Flow',
       reading: '3,895 blpd',
       health: 'GOOD',
+      enabled: true,
     },
     {
       id: 'u2-i15',
@@ -632,6 +920,16 @@ const unit2: UnitTwin = {
       description: 'Water Cut',
       reading: '41 %',
       health: 'GOOD',
+      enabled: true,
+    },
+    {
+      id: 'u2-i16',
+      loop: '700',
+      kind: 'VIB',
+      description: 'Pump Vibration',
+      reading: '— mm/s',
+      health: 'GOOD',
+      enabled: false,
     },
   ],
 
@@ -645,6 +943,222 @@ const unit2: UnitTwin = {
 };
 
 /**
+ * Unit 3 — Low Pressure / Low Flow portable skid currently in scheduled
+ * maintenance. Live numbers are flat-lined to last-known values; the
+ * unit is intentionally OFFLINE/MAINTENANCE so the operator can see how
+ * the screen presents an out-of-service asset (e.g. tile sparks remain
+ * but the status bar carries the maintenance state). Demonstrates that
+ * thresholds, ratings, and telemetry source are per-unit.
+ */
+const unit3: UnitTwin = {
+  id: 'unit-3',
+  unitNumber: 3,
+  name: 'MU #3 · Portable Skid',
+  status: 'MAINTENANCE',
+  well: 'PZ-1108',
+  job: 'SCHEDULED MAINTENANCE',
+  startedUtc: '—',
+  durationSec: 0,
+  dataQualityPct: 0,
+  comm: 'OFFLINE',
+
+  location: {
+    site: 'Pampa El Mango · Yard',
+    area: 'Service Bay',
+    region: 'RVF Internal',
+  },
+
+  config: {
+    unitClass: 'Low Pressure / Low Flow',
+    profileTag: 'LP/LF',
+    unitType: 'Two-Phase Vertical Separator (Portable)',
+    pressureRatingPsi: 1000,
+    maxLiquidFlowBpd: 1200,
+    maxGasFlowMmscfd: 2,
+    maxTemperatureF: 160,
+    maxVibrationMmS: 8,
+    separatorDesignPsi: 1000,
+    telemetryTimeoutSec: 90,
+    calibrationPolicy: 'ISA-101 · 365-day cycle',
+    thresholds: {
+      pressure: {
+        warningLow: 200,
+        warningHigh: 700,
+        alarmLow: 100,
+        alarmHigh: 900,
+        unit: 'psi',
+      },
+      flow: {
+        warningLow: 250,
+        warningHigh: 1000,
+        alarmLow: 150,
+        alarmHigh: 1150,
+        unit: 'bpd',
+      },
+      temperature: {
+        warningLow: 50,
+        warningHigh: 140,
+        alarmLow: 35,
+        alarmHigh: 155,
+        unit: '°F',
+      },
+      vibration: {
+        warningLow: null,
+        warningHigh: 5,
+        alarmLow: null,
+        alarmHigh: 7,
+        unit: 'mm/s',
+      },
+    },
+    margins: { pressurePct: 0, flowPct: 0, temperaturePct: 0 },
+    safetyState: 'NORMAL',
+  },
+
+  telemetry: {
+    protocol: 'MQTT',
+    endpoint: 'mqtt://edge-02.rvf.local:1883',
+    channel: 'rvf/mu-3/telemetry',
+    sampleRateHz: 1,
+    lastSampleUtc: null,
+    state: 'PLANNED',
+  },
+
+  levels: { gasPct: 0, oilPct: 0, waterPct: 0 },
+
+  linePressure: {
+    label: 'Line Pressure',
+    value: 0,
+    unit: 'psi',
+    history: drift(0, 0),
+    tag: 'PIT-101',
+  },
+
+  composition: { oilPct: 0, waterPct: 0, gasPct: 0 },
+
+  inlet: {
+    pressure: {
+      label: 'Inlet Pressure',
+      value: 0,
+      unit: 'psi',
+      history: drift(0, 0),
+      tag: 'PIT-100',
+    },
+    temperature: { label: 'Inlet T.', value: 0, unit: '°F', history: drift(0, 0), tag: 'TIT-100' },
+    flow: { label: 'Inlet Flow', value: 0, unit: 'bopd', history: drift(0, 0), tag: 'FIT-300' },
+  },
+
+  separation: {
+    pressure: {
+      label: 'Separator P.',
+      value: 0,
+      unit: 'psi',
+      history: drift(0, 0),
+      tag: 'PIT-201',
+    },
+    temperature: {
+      label: 'Separator T.',
+      value: 0,
+      unit: '°F',
+      history: drift(0, 0),
+      tag: 'TIT-200',
+    },
+    differentialPressure: {
+      label: 'Differential P.',
+      value: 0,
+      unit: 'psi',
+      history: drift(0, 0),
+      tag: 'DPIT-400',
+    },
+  },
+
+  gasOutlet: {
+    pressure: { label: 'Gas Out P.', value: 0, unit: 'psi', history: drift(0, 0), tag: 'PIT-501' },
+    temperature: {
+      label: 'Gas Out T.',
+      value: 0,
+      unit: '°F',
+      history: drift(0, 0),
+      tag: 'TIT-501',
+    },
+    flow: { label: 'Gas Flow', value: 0, unit: 'MMSCFD', history: drift(0, 0), tag: 'FIT-501' },
+  },
+
+  liquidOutlet: {
+    pressure: {
+      label: 'Liquid Out P.',
+      value: 0,
+      unit: 'psi',
+      history: drift(0, 0),
+      tag: 'PIT-601',
+    },
+    temperature: {
+      label: 'Liquid Out T.',
+      value: 0,
+      unit: '°F',
+      history: drift(0, 0),
+      tag: 'TIT-601',
+    },
+    flow: { label: 'Liquid Flow', value: 0, unit: 'blpd', history: drift(0, 0), tag: 'FIT-601' },
+    waterCut: { label: 'Water Cut', value: 0, unit: '%', history: drift(0, 0), tag: 'WCIT-600' },
+  },
+
+  instruments: [
+    {
+      id: 'u3-i1',
+      loop: '100',
+      kind: 'PIT',
+      description: 'Inlet Pressure',
+      reading: '— psi',
+      health: 'GOOD',
+      enabled: true,
+    },
+    {
+      id: 'u3-i2',
+      loop: '100',
+      kind: 'TIT',
+      description: 'Inlet Temp',
+      reading: '— °F',
+      health: 'GOOD',
+      enabled: true,
+    },
+    {
+      id: 'u3-i3',
+      loop: '300',
+      kind: 'FIT',
+      description: 'Inlet Flow',
+      reading: '— bopd',
+      health: 'GOOD',
+      enabled: true,
+    },
+    {
+      id: 'u3-i4',
+      loop: '600',
+      kind: 'WCIT',
+      description: 'Water Cut',
+      reading: '— %',
+      health: 'GOOD',
+      enabled: false,
+    },
+    {
+      id: 'u3-i5',
+      loop: '700',
+      kind: 'VIB',
+      description: 'Pump Vibration',
+      reading: '— mm/s',
+      health: 'GOOD',
+      enabled: false,
+    },
+  ],
+
+  calibrations: [
+    { id: 'u3-c1', instrumentTag: 'PIT-100', date: '2026-01-18', by: 'h.finol', dueDays: -42 },
+    { id: 'u3-c2', instrumentTag: 'TIT-100', date: '2026-02-04', by: 'd.rivera', dueDays: -15 },
+    { id: 'u3-c3', instrumentTag: 'FIT-300', date: '2026-03-22', by: 'h.finol', dueDays: 8 },
+    { id: 'u3-c4', instrumentTag: 'WCIT-600', date: '2026-03-30', by: 'd.rivera', dueDays: 16 },
+  ],
+};
+
+/**
  * Ordered list of units the operator can switch between. Append a unit to
  * this array and the selector + page bind to it automatically — no page
  * code changes needed.
@@ -652,7 +1166,7 @@ const unit2: UnitTwin = {
  * Typed as a non-empty tuple so `twins[0]` is statically guaranteed
  * defined under `noUncheckedIndexedAccess`.
  */
-export const twins: readonly [UnitTwin, ...UnitTwin[]] = [unit1, unit2];
+export const twins: readonly [UnitTwin, ...UnitTwin[]] = [unit1, unit2, unit3];
 
 /** Convenience alias for code that still imports a single twin. */
 export const twin = unit1;
