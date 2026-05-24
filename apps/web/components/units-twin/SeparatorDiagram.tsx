@@ -2,7 +2,60 @@
 
 import { useEffect, useState } from 'react';
 
-import type { InstrumentKind, UnitTwin } from './data/twin.mock';
+import type { Instrument, InstrumentKind, UnitTwin } from './data/twin.mock';
+
+/**
+ * Per-instrument display tone for the on-diagram value chips. Mirrors
+ * the status taxonomy used by LiveInstrumentReadingsPanel so the two
+ * surfaces stay coherent: a sensor flagged Stale here is Stale there.
+ */
+type ReadingTone = 'normal' | 'stale' | 'fault' | 'offline';
+
+const TONE_FILL: Record<ReadingTone, string> = {
+  normal: 'var(--text-primary)',
+  stale: 'var(--status-stale)',
+  fault: 'var(--status-alarm)',
+  offline: 'var(--text-muted)',
+};
+
+const splitReading = (reading: string): { value: string; unit: string } => {
+  const trimmed = reading.trim();
+  const idx = trimmed.lastIndexOf(' ');
+  if (idx === -1) return { value: trimmed, unit: '' };
+  return { value: trimmed.slice(0, idx), unit: trimmed.slice(idx + 1) };
+};
+
+const deriveTone = (twin: UnitTwin, instrument: Instrument): ReadingTone => {
+  if (!instrument.enabled) return 'offline';
+  if (twin.comm === 'OFFLINE' || twin.status === 'OFFLINE' || twin.status === 'MAINTENANCE') {
+    return 'offline';
+  }
+  if (instrument.health === 'BAD') return 'fault';
+  if (instrument.health === 'DEGRADED' || twin.comm === 'DEGRADED') return 'stale';
+  return 'normal';
+};
+
+/**
+ * Index `twin.instruments` by ISA tag (`${kind}-${loop}`) so the diagram
+ * can look up the current reading for each placed bubble without
+ * threading per-tag wiring through every call site. If a tag is not
+ * present in the inventory, the bubble simply renders without a value
+ * chip — defensive against future tag-set drift.
+ */
+interface DiagramReading {
+  value: string;
+  unit: string;
+  tone: ReadingTone;
+}
+
+const buildReadingIndex = (twin: UnitTwin): Map<string, DiagramReading> => {
+  const out = new Map<string, DiagramReading>();
+  for (const inst of twin.instruments) {
+    const { value, unit } = splitReading(inst.reading);
+    out.set(`${inst.kind}-${inst.loop}`, { value, unit, tone: deriveTone(twin, inst) });
+  }
+  return out;
+};
 
 /**
  * SeparatorDiagram — the hero of /units. A modernized, dark-theme process
@@ -53,11 +106,17 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const jitter = (amp: number) => (Math.random() - 0.5) * amp * 2;
 
 // ----- diagram geometry --------------------------------------------------
-const VB = { w: 1100, h: 440 };
+// VB.h grew from 440 → 470 (F3.1) to make room for on-diagram value chips
+// below the LIT-500 and liquid-outlet bubbles. The gas-outlet pipe also
+// shifted down 18 px (50 → 68) so the gas-outlet bubble trio has clearance
+// below it for a value chip.
+const VB = { w: 1100, h: 470 };
 const VESSEL = { x: 250, y: 110, w: 600, h: 220 } as const;
+const GAS_OUT_Y = 68;
 
 export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
   const levels = useLiveLevels(twin.levels);
+  const readings = buildReadingIndex(twin);
 
   const gasH = (VESSEL.h * levels.gasPct) / 100;
   const oilH = (VESSEL.h * levels.oilPct) / 100;
@@ -155,15 +214,15 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
       <g stroke="var(--text-secondary)" strokeWidth="8" fill="none" strokeLinecap="round">
         <path
           d={`M ${vesselRightX - 80} ${VESSEL.y + 18}
-              L ${vesselRightX - 80} 50
-              L ${vesselRightX + 200} 50`}
+              L ${vesselRightX - 80} ${GAS_OUT_Y}
+              L ${vesselRightX + 200} ${GAS_OUT_Y}`}
           vectorEffect="non-scaling-stroke"
         />
       </g>
       <FlowOverlay
         d={`M ${vesselRightX - 80} ${VESSEL.y + 18}
-            L ${vesselRightX - 80} 50
-            L ${vesselRightX + 200} 50`}
+            L ${vesselRightX - 80} ${GAS_OUT_Y}
+            L ${vesselRightX + 200} ${GAS_OUT_Y}`}
         arrow
       />
 
@@ -365,27 +424,83 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
       <FlowOverlay d={`M ${pipeStartX} ${liquidOutY} L ${pipeEndX} ${liquidOutY}`} arrow />
 
       {/* ============== Instrument tags ============== */}
+      {/* Every bubble below is paired with a compact value chip showing
+          the *current* reading next to its tag. Reading source = twin
+          instrument inventory, looked up by ISA tag (`${kind}-${loop}`).
+          The placement of each chip (`valueAnchor`) is chosen so it
+          never collides with the leader line: above the bubble when the
+          leader drops downward, below when the leader points upward. */}
+
       {/* --- Inlet line: PIT-100 + TIT-100 + FIT-300 --- */}
-      <InstrumentTag cx={120} cy={vesselMidY - 60} kind="PIT" loop="100" />
+      <InstrumentTag
+        cx={120}
+        cy={vesselMidY - 60}
+        kind="PIT"
+        loop="100"
+        reading={readings.get('PIT-100')}
+        valueAnchor="top"
+      />
       <TagLeader x1={120} y1={vesselMidY - 42} x2={120} y2={vesselMidY - 4} />
 
-      <InstrumentTag cx={170} cy={vesselMidY - 60} kind="TIT" loop="100" />
+      <InstrumentTag
+        cx={170}
+        cy={vesselMidY - 60}
+        kind="TIT"
+        loop="100"
+        reading={readings.get('TIT-100')}
+        valueAnchor="top"
+      />
       <TagLeader x1={170} y1={vesselMidY - 42} x2={170} y2={vesselMidY - 4} />
 
-      <InstrumentTag cx={220} cy={vesselMidY + 60} kind="FIT" loop="300" />
+      <InstrumentTag
+        cx={220}
+        cy={vesselMidY + 60}
+        kind="FIT"
+        loop="300"
+        reading={readings.get('FIT-300')}
+        valueAnchor="bottom"
+      />
       <TagLeader x1={220} y1={vesselMidY + 42} x2={220} y2={vesselMidY + 4} />
 
       {/* --- Vessel internals: PIT-101 (line), TIT-200, PIT-201, DPIT-400 --- */}
-      <InstrumentTag cx={VESSEL.x + 90} cy={VESSEL.y - 60} kind="PIT" loop="101" />
+      <InstrumentTag
+        cx={VESSEL.x + 90}
+        cy={VESSEL.y - 60}
+        kind="PIT"
+        loop="101"
+        reading={readings.get('PIT-101')}
+        valueAnchor="top"
+      />
       <TagLeader x1={VESSEL.x + 90} y1={VESSEL.y - 42} x2={VESSEL.x + 90} y2={VESSEL.y - 4} />
 
-      <InstrumentTag cx={VESSEL.x + 230} cy={VESSEL.y - 60} kind="TIT" loop="200" />
+      <InstrumentTag
+        cx={VESSEL.x + 230}
+        cy={VESSEL.y - 60}
+        kind="TIT"
+        loop="200"
+        reading={readings.get('TIT-200')}
+        valueAnchor="top"
+      />
       <TagLeader x1={VESSEL.x + 230} y1={VESSEL.y - 42} x2={VESSEL.x + 230} y2={VESSEL.y - 4} />
 
-      <InstrumentTag cx={VESSEL.x + 360} cy={VESSEL.y - 60} kind="PIT" loop="201" />
+      <InstrumentTag
+        cx={VESSEL.x + 360}
+        cy={VESSEL.y - 60}
+        kind="PIT"
+        loop="201"
+        reading={readings.get('PIT-201')}
+        valueAnchor="top"
+      />
       <TagLeader x1={VESSEL.x + 360} y1={VESSEL.y - 42} x2={VESSEL.x + 360} y2={VESSEL.y - 4} />
 
-      <InstrumentTag cx={vesselRightX - 130} cy={VESSEL.y - 60} kind="DPIT" loop="400" />
+      <InstrumentTag
+        cx={vesselRightX - 130}
+        cy={VESSEL.y - 60}
+        kind="DPIT"
+        loop="400"
+        reading={readings.get('DPIT-400')}
+        valueAnchor="top"
+      />
       <TagLeader
         x1={vesselRightX - 130}
         y1={VESSEL.y - 42}
@@ -393,8 +508,17 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
         y2={VESSEL.y - 4}
       />
 
-      {/* LIT-500 — vessel level transmitter (below vessel) */}
-      <InstrumentTag cx={VESSEL.x + VESSEL.w / 2} cy={vesselBottomY + 78} kind="LIT" loop="500" />
+      {/* LIT-500 — vessel level transmitter (below vessel). Value chip
+          drops below the bubble; the leader runs upward from the bubble
+          into the vessel base, so there is no overlap. */}
+      <InstrumentTag
+        cx={VESSEL.x + VESSEL.w / 2}
+        cy={vesselBottomY + 78}
+        kind="LIT"
+        loop="500"
+        reading={readings.get('LIT-500')}
+        valueAnchor="bottom"
+      />
       <TagLeader
         x1={VESSEL.x + VESSEL.w / 2}
         y1={vesselBottomY + 60}
@@ -402,21 +526,53 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
         y2={vesselBottomY + 4}
       />
 
-      {/* --- Gas outlet line: PIT-501 + TIT-501 + FIT-501 --- */}
-      <InstrumentTag cx={vesselRightX + 60} cy={20} kind="PIT" loop="501" />
-      <TagLeader x1={vesselRightX + 60} y1={32} x2={vesselRightX + 60} y2={50} />
+      {/* --- Gas outlet line: PIT-501 + TIT-501 + FIT-501 ---
+          Bubbles sit at y=20 (canvas top); value chips drop into the
+          band between the bubble and the gas-outlet pipe at GAS_OUT_Y. */}
+      <InstrumentTag
+        cx={vesselRightX + 60}
+        cy={20}
+        kind="PIT"
+        loop="501"
+        reading={readings.get('PIT-501')}
+        valueAnchor="bottom"
+      />
+      <TagLeader x1={vesselRightX + 60} y1={32} x2={vesselRightX + 60} y2={GAS_OUT_Y - 4} />
 
-      <InstrumentTag cx={vesselRightX + 110} cy={20} kind="TIT" loop="501" />
-      <TagLeader x1={vesselRightX + 110} y1={32} x2={vesselRightX + 110} y2={50} />
+      <InstrumentTag
+        cx={vesselRightX + 110}
+        cy={20}
+        kind="TIT"
+        loop="501"
+        reading={readings.get('TIT-501')}
+        valueAnchor="bottom"
+      />
+      <TagLeader x1={vesselRightX + 110} y1={32} x2={vesselRightX + 110} y2={GAS_OUT_Y - 4} />
 
-      <InstrumentTag cx={vesselRightX + 160} cy={20} kind="FIT" loop="501" />
-      <TagLeader x1={vesselRightX + 160} y1={32} x2={vesselRightX + 160} y2={50} />
+      <InstrumentTag
+        cx={vesselRightX + 160}
+        cy={20}
+        kind="FIT"
+        loop="501"
+        reading={readings.get('FIT-501')}
+        valueAnchor="bottom"
+      />
+      <TagLeader x1={vesselRightX + 160} y1={32} x2={vesselRightX + 160} y2={GAS_OUT_Y - 4} />
 
       {/* --- Liquid outlet line: PIT-601 + TIT-601 + FIT-601 + WCIT-600 ---
-          The water-cut analyzer is rendered emphasized (filled chip) so the
-          operator can see at a glance that water is measured here, not piped
-          separately. */}
-      <InstrumentTag cx={vesselRightX + 60} cy={liquidOutY + 62} kind="PIT" loop="601" />
+          The water-cut analyzer is rendered emphasized (accent ring) so
+          the operator can see at a glance that water is measured here,
+          not piped separately. The standalone "WATER CUT 32%" caption
+          previously rendered beside the analyzer is removed — its value
+          is now visible directly on the WCIT-600 bubble's chip. */}
+      <InstrumentTag
+        cx={vesselRightX + 60}
+        cy={liquidOutY + 62}
+        kind="PIT"
+        loop="601"
+        reading={readings.get('PIT-601')}
+        valueAnchor="bottom"
+      />
       <TagLeader
         x1={vesselRightX + 60}
         y1={liquidOutY + 50}
@@ -424,7 +580,14 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
         y2={liquidOutY + 6}
       />
 
-      <InstrumentTag cx={vesselRightX + 110} cy={liquidOutY + 62} kind="TIT" loop="601" />
+      <InstrumentTag
+        cx={vesselRightX + 110}
+        cy={liquidOutY + 62}
+        kind="TIT"
+        loop="601"
+        reading={readings.get('TIT-601')}
+        valueAnchor="bottom"
+      />
       <TagLeader
         x1={vesselRightX + 110}
         y1={liquidOutY + 50}
@@ -432,7 +595,14 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
         y2={liquidOutY + 6}
       />
 
-      <InstrumentTag cx={vesselRightX + 160} cy={liquidOutY + 62} kind="FIT" loop="601" />
+      <InstrumentTag
+        cx={vesselRightX + 160}
+        cy={liquidOutY + 62}
+        kind="FIT"
+        loop="601"
+        reading={readings.get('FIT-601')}
+        valueAnchor="bottom"
+      />
       <TagLeader
         x1={vesselRightX + 160}
         y1={liquidOutY + 50}
@@ -440,16 +610,14 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
         y2={liquidOutY + 6}
       />
 
-      {/* WCIT-600 — inline water cut analyzer on the liquid outlet pipe.
-          Placed slightly elevated so its leader line drops straight into
-          the pipe. Filled fill + accent stroke marks it as the special
-          analyzer (vs. the standard PIT/TIT/FIT triplet). */}
       <InstrumentTag
         cx={vesselRightX + 110}
         cy={liquidOutY - 74}
         kind="WCIT"
         loop="600"
         emphasized
+        reading={readings.get('WCIT-600')}
+        valueAnchor="top"
       />
       <TagLeader
         x1={vesselRightX + 110}
@@ -480,32 +648,6 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
         vectorEffect="non-scaling-stroke"
       />
 
-      {/* Water-cut readout — small numeric chip beside the analyzer, so the
-          operator can read the % water inside the liquid without leaving
-          the diagram. Pulled live from the twin. */}
-      <g transform={`translate(${vesselRightX + 130}, ${liquidOutY - 84})`}>
-        <text
-          x="0"
-          y="0"
-          fontSize="9"
-          fontFamily="var(--font-mono)"
-          letterSpacing="0.1em"
-          fill="var(--text-muted)"
-        >
-          WATER CUT
-        </text>
-        <text
-          x="0"
-          y="16"
-          fontSize="14"
-          fontFamily="var(--font-mono)"
-          fontWeight="700"
-          fill="var(--phase-water)"
-        >
-          {twin.liquidOutlet.waterCut.value.toFixed(1)}%
-        </text>
-      </g>
-
       {/* ============== In-vessel level legend (right side) ============== */}
       <g
         transform={`translate(${vesselRightX + 240}, ${VESSEL.y + 14})`}
@@ -528,7 +670,7 @@ export const SeparatorDiagram = ({ twin }: SeparatorDiagramProps) => {
           viewBox (no clipping) and clear of the right-side phase legend
           column. Gas caption sits *below* its pipe (instruments above);
           liquid caption sits *above* its pipe (PIT/TIT/FIT below). */}
-      <OutletLabel x={pipeEndX} y={72} text="GAS OUTLET" anchor="end" />
+      <OutletLabel x={pipeEndX} y={GAS_OUT_Y + 22} text="GAS OUTLET" anchor="end" />
       <OutletLabel x={pipeEndX} y={liquidOutY - 32} text="LIQUID OUTLET" anchor="end" />
       <OutletLabel x={48} y={vesselMidY - 14} text="MULTIPHASE INLET" />
     </svg>
@@ -559,6 +701,8 @@ const InstrumentTag = ({
   loop,
   r = 18,
   emphasized = false,
+  reading,
+  valueAnchor = 'bottom',
 }: {
   cx: number;
   cy: number;
@@ -568,51 +712,92 @@ const InstrumentTag = ({
   /** Highlight ring + slightly heavier text. Used for the WCIT analyzer so
    *  it doesn't disappear into the row of standard PIT/TIT/FIT chips. */
   emphasized?: boolean;
-}) => (
-  <g>
-    <circle
-      cx={cx}
-      cy={cy}
-      r={r}
-      fill="var(--bg-surface)"
-      stroke={emphasized ? 'var(--brand-accent)' : 'var(--text-secondary)'}
-      strokeWidth={emphasized ? 1.8 : 1.4}
-      vectorEffect="non-scaling-stroke"
-    />
-    <line
-      x1={cx - r}
-      y1={cy}
-      x2={cx + r}
-      y2={cy}
-      stroke={emphasized ? 'var(--brand-accent)' : 'var(--text-secondary)'}
-      strokeWidth="0.8"
-      opacity="0.6"
-      vectorEffect="non-scaling-stroke"
-    />
-    <text
-      x={cx}
-      y={cy - 3}
-      textAnchor="middle"
-      fontSize={kind === 'WCIT' || kind === 'DPIT' ? 8 : 9}
-      fontFamily="var(--font-mono)"
-      fontWeight="700"
-      fill="var(--text-primary)"
-      letterSpacing="0.05em"
-    >
-      {kind}
-    </text>
-    <text
-      x={cx}
-      y={cy + 11}
-      textAnchor="middle"
-      fontSize="9"
-      fontFamily="var(--font-mono)"
-      fill="var(--text-secondary)"
-    >
-      {loop}
-    </text>
-  </g>
-);
+  /** Optional current reading for the bubble. When provided, renders a
+   *  compact value+unit chip directly above or below the bubble, with a
+   *  small bg-canvas backing rect so it stays legible over any crossing
+   *  leader line or pipe. Color follows the instrument's display tone. */
+  reading?: DiagramReading;
+  /** Which side of the bubble the value chip sits on. Chosen per call
+   *  site so the chip never overlaps the leader line. */
+  valueAnchor?: 'top' | 'bottom';
+}) => {
+  const chipY = valueAnchor === 'top' ? cy - r - 9 : cy + r + 11;
+  const chipText = reading ? `${reading.value} ${reading.unit}`.trim() : '';
+  // Width estimate: 7 px per character at 8 pt mono (close enough for a
+  // backing rect; the rect is purely decorative — only there to mask the
+  // dashed leader behind short on-diagram values).
+  const chipW = chipText.length * 6.2 + 8;
+  return (
+    <g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill="var(--bg-surface)"
+        stroke={emphasized ? 'var(--brand-accent)' : 'var(--text-secondary)'}
+        strokeWidth={emphasized ? 1.8 : 1.4}
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={cx - r}
+        y1={cy}
+        x2={cx + r}
+        y2={cy}
+        stroke={emphasized ? 'var(--brand-accent)' : 'var(--text-secondary)'}
+        strokeWidth="0.8"
+        opacity="0.6"
+        vectorEffect="non-scaling-stroke"
+      />
+      <text
+        x={cx}
+        y={cy - 3}
+        textAnchor="middle"
+        fontSize={kind === 'WCIT' || kind === 'DPIT' ? 8 : 9}
+        fontFamily="var(--font-mono)"
+        fontWeight="700"
+        fill="var(--text-primary)"
+        letterSpacing="0.05em"
+      >
+        {kind}
+      </text>
+      <text
+        x={cx}
+        y={cy + 11}
+        textAnchor="middle"
+        fontSize="9"
+        fontFamily="var(--font-mono)"
+        fill="var(--text-secondary)"
+      >
+        {loop}
+      </text>
+      {reading && chipText.length > 0 ? (
+        <g>
+          <rect
+            x={cx - chipW / 2}
+            y={chipY - 7}
+            width={chipW}
+            height={11}
+            rx={1.5}
+            fill="var(--bg-canvas)"
+            opacity="0.92"
+          />
+          <text
+            x={cx}
+            y={chipY + 1}
+            textAnchor="middle"
+            fontSize="8"
+            fontFamily="var(--font-mono)"
+            fontWeight={reading.tone === 'normal' ? 600 : 700}
+            fill={TONE_FILL[reading.tone]}
+            letterSpacing="0.02em"
+          >
+            {chipText}
+          </text>
+        </g>
+      ) : null}
+    </g>
+  );
+};
 
 const TagLeader = ({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) => (
   <line

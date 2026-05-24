@@ -11,7 +11,7 @@ import { twins } from '@/components/units-twin/data/twin.mock';
 import { EngineeringLimitsPanel } from '@/components/units-twin/EngineeringLimitsPanel';
 import { InstrumentSummaryPanel } from '@/components/units-twin/InstrumentSummaryPanel';
 import { LinePressureCard } from '@/components/units-twin/LinePressureCard';
-import { ProcessTrendsPanel } from '@/components/units-twin/ProcessTrendsPanel';
+import { LiveInstrumentReadingsPanel } from '@/components/units-twin/LiveInstrumentReadingsPanel';
 import { ProcessVariableTile } from '@/components/units-twin/ProcessVariableTile';
 import { SeparatorDiagram } from '@/components/units-twin/SeparatorDiagram';
 import { TelemetrySourcePanel } from '@/components/units-twin/TelemetrySourcePanel';
@@ -36,10 +36,13 @@ import { UnitTabs } from '@/components/units-twin/UnitTabs';
  *   2. UnitStatusBar — well/job/status/started/duration/quality+comm
  *   3. Main grid (1fr + 280px right rail):
  *        a) Variable tile clusters — GAS / SEPARADOR / ENTRADA above diagram
- *        b) Hero separator diagram
+ *        b) Hero separator diagram (instrument bubbles show live readings)
  *        c) Below-diagram row: PRESIÓN DE LÍNEA + COMPOSICIÓN + VARIABLES DESCARGA
- *        d) Compact Live Trends strip
+ *        d) Unit configuration · alarm thresholds · telemetry source
+ *        e) Live Instrument Readings table (F3.1)
  *      Right rail: Unit Health · Instrument Summary · Communication · Last Cal.
+ *
+ * Production trends live on /operations, not here.
  */
 export default function UnitsPage() {
   const [activeId, setActiveId] = useState<string>(twins[0].id);
@@ -160,8 +163,10 @@ export default function UnitsPage() {
           <UnitAlarmThresholdsPanel twin={twin} />
           <TelemetrySourcePanel twin={twin} />
 
-          {/* ===== Bottom trends — compact strip ===== */}
-          <ProcessTrendsPanel twin={twin} />
+          {/* ===== F3.1: live transmitter snapshot — current reading per
+              instrument. Intentionally NOT a trends/production view; the
+              Operations screen owns process visualization + history. ===== */}
+          <LiveInstrumentReadingsPanel twin={twin} />
         </div>
 
         {/* ===== Right operational rail ===== */}
