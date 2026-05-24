@@ -5,14 +5,15 @@
 
 Esta adenda registra de forma fechada dos decisiones de arquitectura tomadas por RVF posteriores a la emisión de los documentos fundacionales. No reabre ni reemplaza ningún documento: los precisa y se anexa a los cinco como parte del expediente técnico.
 
-| **Aplica a los documentos**                        | **Estado**                                   |
-|----------------------------------------------------|----------------------------------------------|
-| 1. Arquitectura general y estrategia de evolución | Sin cambios; informativo                     |
-| 2. Fundación Técnica de Telemetría                | Precisado por ADR-001, 002, 003, 004 y 005   |
-| 3. Arquitectura UI/UX                             | Precisado por ADR-003, 004 y 005             |
-| 4. Sistema de Diseño Industrial                   | Sin cambios                                  |
-| 5. Arquitectura de Ingeniería del Producto        | Precisado por ADR-001, 003, 004 y 005        |
-| 6. Modelo de Dominio y Arquitectura de Datos      | Precisado por ADR-005 (catálogo vs snapshot) |
+| **Aplica a los documentos**                        | **Estado**                                      |
+|----------------------------------------------------|-------------------------------------------------|
+| 1. Arquitectura general y estrategia de evolución | Sin cambios; informativo                        |
+| 2. Fundación Técnica de Telemetría                | Precisado por ADR-001, 002, 003, 004, 005 y 006 |
+| 3. Arquitectura UI/UX                             | Precisado por ADR-003, 004 y 005                |
+| 4. Sistema de Diseño Industrial                   | Sin cambios                                     |
+| 5. Arquitectura de Ingeniería del Producto        | Precisado por ADR-001, 003, 004, 005 y 006      |
+| 6. Modelo de Dominio y Arquitectura de Datos      | Precisado por ADR-005 y reforzado por ADR-006   |
+| F3 — Backend / API Foundation                      | Encuadrada por ADR-006                          |
 
 # ADR-001 — Origen de Datos: Gateway Stick sin PLC hoy, PLC previsto a futuro
 
@@ -306,17 +307,135 @@ El tag v0.2-settings-units-freeze del repositorio congela las pantallas Settings
 
 - **Documentos 1 y 4.** Sin cambios.
 
+# ADR-006 — RVF Malinois como Plataforma Principal y Sistema de Registro
+
+| **Campo**   | **Detalle**                                                         |
+|-------------|---------------------------------------------------------------------|
+| Estado      | Aceptada                                                            |
+| Decide      | RVF Soluciones Energéticas C.A.                                     |
+| Relacionada | Refuerza ADR-001 y ADR-005; encuadra la Fase F3                     |
+| Disparador  | Necesidad de fijar la propiedad del sistema de registro antes de F3 |
+
+## Contexto
+
+Las fases F1 y F2 establecieron una fundación frontend con telemetría normalizada, store de tiempo real, evaluación de alarmas contra snapshot, frontera del navegador firme y un adapter WebSocket preparado para conectarse al backend cuando exista. Antes de construir ese backend en F3, es necesario fijar de forma explícita una pregunta que el expediente nunca había contestado: quién es el sistema autoritativo de la verdad del producto.
+
+El documento de Fundación Técnica describía una cadena (sensor → Gateway → Node-RED → ThingsBoard → backend RVF → frontend) donde ThingsBoard aparecía como infraestructura central, autohospedada en Perú, con dashboards propios. Esa lectura era razonable mientras F2 era solo frontend. Deja de serlo cuando F3 va a definir el backend. Herramientas como Node-RED, ThingsBoard, AWS IoT Core, Azure IoT Hub, brokers MQTT, gateways PLC, puentes OPC-UA, gateways Modbus o historiadores industriales podrán existir en el ecosistema, pero ninguna debe ser propietaria de la lógica central.
+
+## Decisión
+
+RVF Malinois se desarrollará como una plataforma de monitoreo operacional propia y como sistema de registro. El backend y la API de RVF Malinois son la API canónica del producto y la fuente autoritativa para:
+
+- Measurement units (catálogo, identidad, capacidades nominales).
+
+- Sensors (inventario, ownership, configuración).
+
+- Alarm configurations (thresholds por unidad y sensor, snapshot por trabajo).
+
+- Telemetry ingestion (POST a la API canónica).
+
+- Telemetry queries (historial, latest, agregaciones).
+
+- Operating profiles (perfiles operacionales por unidad).
+
+- Reportes futuros (operativos, históricos y entregables a cliente).
+
+- Maintenance insights futuros (salud de sensores, ciclos, predictivo).
+
+Los sistemas externos podrán integrarse más adelante, pero exclusivamente como fuentes aguas arriba, puentes de campo, herramientas auxiliares o integraciones opcionales, y todos lo harán contra los endpoints definidos de RVF Malinois. La API impone validación, autoría del trabajo activo, evaluación contra snapshot y trazabilidad; ningún sistema externo puede ser dueño de esa lógica.
+
+> **Regla práctica.** RVF Malinois debe poder funcionar aunque ThingsBoard, Node-RED, AWS IoT o Azure IoT no existan. Si la plataforma deja de funcionar al apagar uno de esos sistemas, la decisión se está violando.
+
+## Consecuencias positivas
+
+- **Producto propio.** RVF Malinois queda como producto propiedad de RVF, no como fachada de un servicio de terceros.
+
+- **Sin vendor lock-in.** La elección de plataforma de nube, broker, historiador o gateway se vuelve táctica, no estratégica.
+
+- **Crecimiento multi-cliente / multi-unidad.** El modelo de tenant y el aislamiento por cliente se construyen una vez en la API canónica, no en cada integración.
+
+- **ThingsBoard, Node-RED y cloud como opciones, no como obligaciones.** Pueden adoptarse en algunos despliegues y omitirse en otros sin tocar el núcleo.
+
+- **Lógica centralizada.** La evaluación de alarmas, la trazabilidad de snapshot, la persistencia y la auditoría viven en un solo lugar.
+
+- **Evolución más controlada.** Base de datos, autenticación, reportes y alarmas pueden evolucionar sin pedir permiso a una plataforma externa.
+
+## Trade-offs
+
+- **Mayor responsabilidad backend.** RVF asume el peso de construir y mantener servicios que de otra manera vendrían de una plataforma IoT.
+
+- **Telemetry storage y alarm logic como responsabilidades RVF.** Sin compromisos: el almacenamiento de series temporales y la lógica de alarmas viven en la plataforma.
+
+- **Diseño de API más cuidadoso.** Como esa API será el punto de integración de todo, su estabilidad y su contrato deben tratarse con disciplina (versionado, contract tests, documentación).
+
+- **Integraciones externas requieren adapters.** ThingsBoard, Node-RED, MQTT brokers, PLC gateways: cada uno necesitará un puente que hable la API canónica.
+
+## Impacto en F3
+
+- **F3 construye el backend canónico, no una envoltura.** Los endpoints definidos en el documento de F3 son la API de RVF Malinois, no una fachada de ThingsBoard ni de otra plataforma.
+
+- **F3 mantiene su alcance.** Sigue sin implementar base de datos real, autenticación avanzada, integración con Node-RED, ThingsBoard, AWS IoT, Azure IoT, brokers MQTT, PLC, OPC-UA, Modbus o historiadores. Todo eso es trabajo posterior.
+
+- **F3 crea la superficie estable que esas integraciones futuras consumirán.** POST /api/telemetry, GET /api/units, etc., son la puerta de entrada canónica para cualquier integración futura.
+
+## Impacto en documentos previos
+
+- **Fundación Técnica.** Toda mención de ThingsBoard como columna vertebral debe leerse ahora como “origen de ingestión opcional, conectado por API”, no como infraestructura central obligatoria.
+
+- **ADR-005.** Sigue plenamente vigente. La frontera del navegador no cambia: el browser solo habla con el backend de RVF Malinois.
+
+- **F2 y F2D.** Quedan alineados sin ajustes. El BackendWebSocketTelemetryAdapter de F2D ya esperaba un backend RVF; ADR-006 confirma que ese backend es RVF Malinois mismo.
+
+- **F3.** Queda explícitamente fundada como base del backend núcleo de RVF Malinois. Se añade en F3 una sección “Core Architecture Decision” que cita ADR-006.
+
+- **Modelo de Dominio.** Reforzado: las entidades del modelo (Cliente, Pozo, Equipo, Sensor, Trabajo, Snapshot, Telemetría, Alarma, Auditoría) son propiedad de RVF Malinois.
+
+## No-decisiones
+
+ADR-006 no decide ninguno de los siguientes puntos. Cada uno se evaluará en su momento sin estar atado a esta decisión:
+
+- Si AWS o Azure (u otra nube, o autohospedado) se usará para despliegue.
+
+- Si ThingsBoard / Well-Ion permanecerá como herramienta interna de RVF, se retirará gradualmente o quedará como integración aguas arriba indefinida.
+
+- Si Node-RED será el estándar de gateway de campo o se sustituirá por otra solución.
+
+- Qué base de datos se usará (PostgreSQL, TimescaleDB, alternativas).
+
+- Qué broker MQTT, historiador o protocolo PLC se soportará primero cuando llegue la integración de campo.
+
+## Trabajo futuro
+
+- **Database Foundation.** Selección e instalación del motor relacional y de series temporales que reemplazarán la capa adapter/mock de F3.
+
+- **Auth / Users / Roles.** SSO, RBAC, alcance multi-tenant, identidad de operador para acknowledge real de alarmas.
+
+- **Telemetry Storage.** Hipertablas, agregados continuos, retención, compresión.
+
+- **Field Gateway Integration.** Node-RED u otra solución como adapter al ingest canónico de RVF Malinois.
+
+- **Cloud Deployment.** AWS, Azure, autohospedado o híbrido — decisión táctica.
+
+- **MQTT / OPC-UA / Modbus bridges.** Puentes específicos cuando la operación los necesite, todos contra la API canónica.
+
+- **ThingsBoard Compatibility Bridge.** Si se decide mantener Well-Ion en algún despliegue, su rol se gestionará vía adapter.
+
+- **Real-time Alarms and Notifications.** Persistencia, ciclo de vida con backend real, notificaciones operativas.
+
+- **Reports and Maintenance Intelligence.** Reportes auditables con reconstrucción por snapshot; mantenimiento basado en historial.
+
 Cierre de Puntos Pendientes y Registro de Decisiones
 
-Con esta adenda se cierran formalmente los puntos que las notas de cierre de los documentos 2 y 5 mantenían abiertos, y se incorporan las decisiones de arquitectura derivadas (ADR-003 a ADR-005). A partir de su fecha de emisión, dichas notas se consideran resueltas y no deben tratarse como pendientes en planificación ni en ejecución.
+Con esta adenda se cierran formalmente los puntos que las notas de cierre de los documentos 2 y 5 mantenían abiertos, y se incorporan las decisiones de arquitectura derivadas (ADR-003 a ADR-006). A partir de su fecha de emisión, dichas notas se consideran resueltas y no deben tratarse como pendientes en planificación ni en ejecución.
 
-| **Punto pendiente / encuadre original**                  | **Resuelto por**                                                     |
-|----------------------------------------------------------|----------------------------------------------------------------------|
-| Marca/modelo de PLC de las unidades EMGAD/EMMAD          | ADR-001 — no hay PLC hoy; previsto a futuro como origen adicional    |
-| Requisito de residencia de datos de Repsol               | ADR-002 — sin requisito; decisión operativa de RVF                   |
-| Origen del mapa de registros Gateway Stick por operación | ADR-003 — dato de comisionamiento configurable por la operación      |
-| Reutilización del equipo entre pozos sin re-registrar    | ADR-004 — catálogo de equipos con snapshot por trabajo               |
-| Encuadre de F2 antes de implementación                   | ADR-005 — snapshot manda; frontera del navegador; alcance del freeze |
+| **Punto pendiente / encuadre original**                  | **Resuelto por**                                                       |
+|----------------------------------------------------------|------------------------------------------------------------------------|
+| Marca/modelo de PLC de las unidades EMGAD/EMMAD          | ADR-001 — no hay PLC hoy; previsto a futuro como origen adicional      |
+| Requisito de residencia de datos de Repsol               | ADR-002 — sin requisito; decisión operativa de RVF                     |
+| Origen del mapa de registros Gateway Stick por operación | ADR-003 — dato de comisionamiento configurable por la operación        |
+| Reutilización del equipo entre pozos sin re-registrar    | ADR-004 — catálogo de equipos con snapshot por trabajo                 |
+| Encuadre de F2 antes de implementación                   | ADR-005 — snapshot manda; frontera del navegador; alcance del freeze   |
+| Quién es el sistema autoritativo del producto            | ADR-006 — RVF Malinois como plataforma principal y sistema de registro |
 
 Registro de decisiones (índice)
 
@@ -327,7 +446,8 @@ Registro de decisiones (índice)
 | ADR-003 | Mapeo sensor–registro–tag–pozo configurable por la operación    | Aceptada   |
 | ADR-004 | Catálogo de equipos de Well Testing reutilizables               | Aceptada   |
 | ADR-005 | Encuadre de F2: snapshot, frontera del navegador, freeze        | Aceptada   |
+| ADR-006 | RVF Malinois como plataforma principal y sistema de registro    | Aceptada   |
 
-> **Nota de versión.** Este documento es la versión 1.3 del registro de decisiones de RVF Malinois y reemplaza a la versión 1.2 (ADR-001 a 004). El registro es acumulativo: futuras decisiones se añadirán como ADR-006 y siguientes en este mismo documento, manteniendo un único expediente de trazabilidad. Documento de referencia incorporado en v1.2: P&ID EMMAD-01 (filosofía de operación del equipo, dic. 2020).
+> **Nota de versión.** Este documento es la versión 1.4 del registro de decisiones de RVF Malinois y reemplaza a la versión 1.3 (ADR-001 a 005). El registro es acumulativo: futuras decisiones se añadirán como ADR-007 y siguientes en este mismo documento, manteniendo un único expediente de trazabilidad. Documento de referencia incorporado en v1.2: P&ID EMMAD-01 (filosofía de operación del equipo, dic. 2020).
 
 *
