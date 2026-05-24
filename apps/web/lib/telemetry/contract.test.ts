@@ -10,8 +10,10 @@ import { describe, expect, it } from 'vitest';
 import { JOB_HP_HF, JOB_MP, JOB_STALE } from '../jobs/snapshots.mock';
 
 import { SimulatedNormalizedTelemetryAdapter } from './adapters/simulated';
+import { BackendWebSocketTelemetryAdapter } from './adapters/websocket';
 import { PROFILE_HP_HF_NORMAL, PROFILE_MP_NORMAL, PROFILE_STALE_DRILL } from './simulator/profiles';
 
+import type { NormalizedTelemetryAdapter } from './adapter';
 import type { NormalizedTelemetryMessage } from './models';
 
 const isValidIso = (s: string): boolean => !Number.isNaN(Date.parse(s));
@@ -109,6 +111,26 @@ describe('NormalizedTelemetryMessage contract (simulator emissions)', () => {
     const a = new SimulatedNormalizedTelemetryAdapter({
       bindings: [{ job: JOB_HP_HF, profile: PROFILE_HP_HF_NORMAL }],
       useTimer: false,
+    });
+    expect(typeof a.start).toBe('function');
+    expect(typeof a.stop).toBe('function');
+    expect(typeof a.subscribe).toBe('function');
+  });
+
+  // F2D contract conformance — proves both implementations satisfy the same
+  // interface so the factory can pick between them without UI changes.
+  it('BackendWebSocketTelemetryAdapter conforms to NormalizedTelemetryAdapter', () => {
+    const a: NormalizedTelemetryAdapter = new BackendWebSocketTelemetryAdapter({
+      url: 'wss://backend.test/telemetry',
+      // Inject no-op timer + socket so construction never reaches the
+      // global WebSocket — this test must run in pure Node.
+      setTimer: () => 0,
+      clearTimer: () => {
+        /* test fake */
+      },
+      createSocket: () => {
+        throw new Error('not used in this test');
+      },
     });
     expect(typeof a.start).toBe('function');
     expect(typeof a.stop).toBe('function');

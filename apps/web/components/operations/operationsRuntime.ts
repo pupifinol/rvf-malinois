@@ -1,23 +1,42 @@
 /**
- * Operations telemetry runtime — F2B.
+ * Operations telemetry runtime — F2B (factory-driven in F2D).
  *
- * Module-level singleton that owns the SimulatedNormalizedTelemetryAdapter
- * powering the Operations screen, and connects it to the telemetry store.
- * Reference-counted so React strict-mode double mounts and concurrent
- * renders never spin up two adapters at once.
+ * Module-level singleton that owns the active `NormalizedTelemetryAdapter`
+ * powering Operations + Alarms, and connects it to the singleton
+ * TelemetryStore. Reference-counted so React strict-mode double mounts and
+ * concurrent renders never spin up two adapters at once.
  *
- * This file is plain TypeScript (no React) so it stays unit-testable.
- * The React-facing wrapper lives in OperationsTelemetryRuntime.tsx.
+ * F2D change: the adapter is built by `createTelemetryAdapter()` so the
+ * runtime no longer hard-codes the simulator. The factory keeps the
+ * simulator as the default (local dev never needs a backend); flipping to
+ * the real backend WebSocket is a deployment-time env switch with zero
+ * code changes here. Per F2 Runtime Integration Notes v1.0 §13, this is
+ * the single seam between "the runtime" and "the wire transport".
+ *
+ * The file stays plain TypeScript (no React) so it remains unit-testable.
+ * The React-facing wrappers are `OperationsTelemetryRuntime.tsx` and
+ * `SharedTelemetryRuntime.tsx`; both delegate to start/stop here.
+ *
+ * Module name preserved per Runtime Integration Notes §4: "se recomienda
+ * mantener el nombre estable hasta F2D para no introducir cambios
+ * mecánicos innecesarios". A rename to `sharedTelemetryRuntime` is a
+ * cosmetic follow-up if the team wants it.
  */
 import { OPERATIONS_JOBS } from './data/operationsJobs';
 
+import type { NormalizedTelemetryAdapter } from '@/lib/telemetry/adapter';
+
 import { setActiveJobSnapshot } from '@/lib/jobs/activeJob';
 import { connectAdapter, getTelemetryStore } from '@/lib/realtime/telemetryStore';
-import { SimulatedNormalizedTelemetryAdapter } from '@/lib/telemetry/adapters/simulated';
+import {
+  createTelemetryAdapter,
+  type TelemetryAdapterConfig,
+} from '@/lib/telemetry/adapterFactory';
 
 interface RuntimeHandle {
-  adapter: SimulatedNormalizedTelemetryAdapter;
+  adapter: NormalizedTelemetryAdapter;
   disconnect: () => void;
+  config: TelemetryAdapterConfig;
   refCount: number;
 }
 
@@ -42,18 +61,26 @@ export const startOperationsTelemetry = (): boolean => {
     setActiveJobSnapshot(first.job);
   }
 
-  const adapter = new SimulatedNormalizedTelemetryAdapter({
+  const { adapter, config } = createTelemetryAdapter({
     bindings: OPERATIONS_JOBS.map(({ job, profile }) => ({ job, profile })),
-    seed: 17,
-    intervalMs: 1000,
-    heartbeatEveryTicks: 10,
-    connectionGlitchEveryTicks: 0,
   });
+
+  if (config.fellBackToSimulator) {
+    // Visible-in-dev signal that the operator asked for the backend
+    // WebSocket but no URL was wired. Never throws — local dev keeps
+    // working on the simulator until the URL is provided.
+    if (typeof console !== 'undefined' && process.env.NODE_ENV !== 'production') {
+      console.info(
+        '[telemetry] NEXT_PUBLIC_RVF_TELEMETRY_SOURCE=websocket requested but ' +
+          'NEXT_PUBLIC_RVF_TELEMETRY_WS_URL is empty; falling back to simulator.',
+      );
+    }
+  }
 
   const disconnect = connectAdapter(getTelemetryStore(), adapter);
   adapter.start();
 
-  handle = { adapter, disconnect, refCount: 1 };
+  handle = { adapter, disconnect, config, refCount: 1 };
   return true;
 };
 
@@ -78,3 +105,7 @@ export const _resetOperationsTelemetry = (): void => {
     handle = null;
   }
 };
+
+/** Inspection — returns the active adapter config when running, else null. */
+export const getOperationsTelemetryConfig = (): TelemetryAdapterConfig | null =>
+  handle?.config ?? null;

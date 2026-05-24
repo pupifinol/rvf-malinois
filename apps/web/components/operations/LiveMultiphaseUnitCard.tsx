@@ -18,25 +18,25 @@ import { Signal, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-
 
 import { LiveVariableTile } from './LiveVariableTile';
 import { UnitImage } from './UnitImage';
-import { OPERATIONS_TILES } from './viewModel';
+import { OPERATIONS_TILES, rollUpUnitStatus, type UnitBadgeStatus } from './viewModel';
 
-import type { AlarmState } from '@/lib/alarms/types';
 import type { ActiveJobSnapshot } from '@/lib/jobs/types';
-import type { CommunicationStatus, TelemetryStatus } from '@/lib/telemetry/models';
+import type { CommunicationStatus } from '@/lib/telemetry/models';
 
-import { higher } from '@/lib/alarms/priority';
 import { useNowTick, useUnitTelemetrySnapshot } from '@/lib/hooks';
 
-type CardStatus = 'TESTING' | 'STABILIZING' | 'ALARM' | 'OFFLINE';
 type SignalStrength = 'STRONG' | 'OK' | 'WEAK' | 'NONE';
 
-const statusStyles: Record<CardStatus, { chip: string; accent: string; dot: string }> = {
+const statusStyles: Record<UnitBadgeStatus, { chip: string; accent: string; dot: string }> = {
   TESTING: {
     chip: 'bg-status-info/15 text-status-info border-status-info/50',
     accent: 'border-l-status-info',
     dot: 'bg-status-info',
   },
-  STABILIZING: {
+  // DEGRADED keeps the amber tone that previously belonged to STABILIZING:
+  // the operator's eye expects "attention but not critical" in amber across
+  // every Operations surface (ISA-101). The label is what changed.
+  DEGRADED: {
     chip: 'bg-status-warn/15 text-status-warn border-status-warn/50',
     accent: 'border-l-status-warn',
     dot: 'bg-status-warn',
@@ -52,6 +52,11 @@ const statusStyles: Record<CardStatus, { chip: string; accent: string; dot: stri
     dot: 'bg-status-stale',
   },
 };
+
+// The six tags that the card actually renders. The badge rolls up against
+// THIS list — not against every sensor the snapshot happens to know about —
+// so the badge stays in sync with what the operator sees on screen.
+const DISPLAYED_TAGS = OPERATIONS_TILES.map((t) => t.tag);
 
 const SignalIcon = ({ signal }: { signal: SignalStrength }) => {
   const cls = 'w-4 h-4 text-text-secondary';
@@ -80,31 +85,6 @@ export interface LiveMultiphaseUnitCardProps {
   connectionStatus: CommunicationStatus;
   density?: 'comfortable' | 'compact';
 }
-
-const rollUpStatus = (
-  byTag: Record<string, { alarm: AlarmState; stale: TelemetryStatus }>,
-): {
-  status: CardStatus;
-  worstAlarm: AlarmState;
-  staleCount: number;
-} => {
-  let worst: AlarmState = 'normal';
-  let staleCount = 0;
-  let anyData = false;
-  for (const v of Object.values(byTag)) {
-    worst = higher(worst, v.alarm);
-    if (v.stale === 'stale' || v.stale === 'offline') staleCount += 1;
-    if (v.stale === 'live' || v.stale === 'delayed') anyData = true;
-  }
-
-  let status: CardStatus;
-  if (worst === 'alarm_high' || worst === 'alarm_low') status = 'ALARM';
-  else if (!anyData) status = 'OFFLINE';
-  else if (worst === 'warning_high' || worst === 'warning_low') status = 'STABILIZING';
-  else status = 'TESTING';
-
-  return { status, worstAlarm: worst, staleCount };
-};
 
 const formatHHMM = (iso: string): string => {
   const d = new Date(iso);
@@ -153,7 +133,7 @@ export const LiveMultiphaseUnitCard = ({
   });
   const compact = density === 'compact';
 
-  const roll = rollUpStatus(unitSnap.byTag);
+  const roll = rollUpUnitStatus(unitSnap.byTag, DISPLAYED_TAGS);
   const styles = statusStyles[roll.status];
 
   // Newest tag timestamp = "last update".
