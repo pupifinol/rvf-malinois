@@ -28,7 +28,7 @@ import { Panel } from '@/components/shell/Panel';
  * Buttons are inert in F0 (no backend wired); they look actionable
  * but never flashy.
  */
-type ActionId =
+export type ActionId =
   | 'ack-all-active'
   | 'ack-low-priority'
   | 'silence-horn'

@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { alarmFeed, type FeedEventTone } from './data/alarms.mock';
+import { alarmFeed, type AlarmFeedEvent, type FeedEventTone } from './data/alarms.mock';
 
 import { Panel } from '@/components/shell/Panel';
 
@@ -20,9 +20,10 @@ import { Panel } from '@/components/shell/Panel';
  *   - title + meta (uppercase title, source · unit · monospace)
  *   - relative timestamp on the far right (mono, dimmed)
  *
- * The icon chips are the load-bearing visual cue — each one is a
- * small filled square with the tone color, so the operator's eye
- * picks up clusters of red/amber at a glance even when scrolling.
+ * F2C: accepts an `events` prop so the Alarm Center page can stream live
+ * events derived from the F2A telemetry foundation. When omitted, the
+ * component renders the static mock feed (preserves any back-compat
+ * caller that still wants the visual baseline without live wiring).
  *
  * Panel meta has a pulsing green dot + "Live" label as the connected
  * indicator. No other animation.
@@ -75,7 +76,12 @@ const TONE: Record<FeedEventTone, { border: string; chip: string; icon: string; 
   },
 };
 
-export const RealtimeAlarmFeed = () => (
+export interface RealtimeAlarmFeedProps {
+  /** Newest-first feed rows. Defaults to the static mock for back-compat. */
+  events?: readonly AlarmFeedEvent[];
+}
+
+export const RealtimeAlarmFeed = ({ events = alarmFeed }: RealtimeAlarmFeedProps) => (
   <Panel
     title="Realtime Alarm Feed"
     density="compact"
@@ -93,40 +99,46 @@ export const RealtimeAlarmFeed = () => (
       className="flex flex-col max-h-[420px] overflow-y-auto -mx-1 px-1 divide-y divide-border-subtle"
       aria-label="Live alarm event stream"
     >
-      {alarmFeed.map((e) => {
-        const Icon = ICONS[e.tone];
-        const t = TONE[e.tone];
-        return (
-          <li
-            key={e.id}
-            className={cn(
-              'flex items-center gap-2 py-1 pl-2 pr-1 border-l-[3px] hover:bg-surface-raised/40 transition-colors duration-fast',
-              t.border,
-            )}
-          >
-            <span
-              aria-hidden="true"
+      {events.length === 0 ? (
+        <li className="py-2 text-xs text-text-muted">No events yet — waiting for telemetry.</li>
+      ) : (
+        events.map((e) => {
+          const Icon = ICONS[e.tone];
+          const t = TONE[e.tone];
+          return (
+            <li
+              key={e.id}
               className={cn(
-                'inline-flex items-center justify-center w-5 h-5 rounded-xs shrink-0 opacity-85',
-                t.chip,
+                'flex items-center gap-2 py-1 pl-2 pr-1 border-l-[3px] hover:bg-surface-raised/40 transition-colors duration-fast',
+                t.border,
               )}
             >
-              <Icon className={cn('w-3 h-3', t.icon)} />
-            </span>
-            <div className="flex-1 min-w-0 flex flex-col leading-tight">
-              <span className={cn('text-xs font-bold uppercase tracking-micro truncate', t.title)}>
-                {e.title}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'inline-flex items-center justify-center w-5 h-5 rounded-xs shrink-0 opacity-85',
+                  t.chip,
+                )}
+              >
+                <Icon className={cn('w-3 h-3', t.icon)} />
               </span>
-              <span className="text-micro uppercase tracking-micro text-text-secondary truncate">
-                {e.unit} · <span className="font-mono">{e.source}</span>
+              <div className="flex-1 min-w-0 flex flex-col leading-tight">
+                <span
+                  className={cn('text-xs font-bold uppercase tracking-micro truncate', t.title)}
+                >
+                  {e.title}
+                </span>
+                <span className="text-micro uppercase tracking-micro text-text-secondary truncate">
+                  {e.unit} · <span className="font-mono">{e.source}</span>
+                </span>
+              </div>
+              <span className="font-mono text-text-muted/70 shrink-0 tabular-nums leading-none text-[10px] uppercase tracking-micro">
+                {e.at}
               </span>
-            </div>
-            <span className="font-mono text-text-muted/70 shrink-0 tabular-nums leading-none text-[10px] uppercase tracking-micro">
-              {e.at}
-            </span>
-          </li>
-        );
-      })}
+            </li>
+          );
+        })
+      )}
     </ul>
   </Panel>
 );

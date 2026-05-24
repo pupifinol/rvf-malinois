@@ -1,4 +1,5 @@
 export { useActiveJobSnapshot } from './useActiveJobSnapshot';
+export { useAlarmCenter, type UseAlarmCenterOptions } from './useAlarmCenter';
 export { useAlarmState, type UseAlarmStateOptions } from './useAlarmState';
 export { useConnectionStatus } from './useConnectionStatus';
 export { useHistoryBuffer } from './useHistoryBuffer';
