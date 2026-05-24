@@ -1,68 +1,53 @@
-import { ActiveAlarmsPanel } from '@/components/operations/ActiveAlarmsPanel';
-import { CommunicationHealthPanel } from '@/components/operations/CommunicationHealthPanel';
-import { units } from '@/components/operations/data/units.mock';
+import { OPERATIONS_JOBS } from '@/components/operations/data/operationsJobs';
 import { FieldConditionsPanel } from '@/components/operations/FieldConditionsPanel';
-import { LiveTrendsPanel } from '@/components/operations/LiveTrendsPanel';
-import { MultiphaseUnitCard } from '@/components/operations/MultiphaseUnitCard';
-import { PageHeader, StatusChip } from '@/components/shell/PageHeader';
+import { LiveActiveAlarmsPanel } from '@/components/operations/LiveActiveAlarmsPanel';
+import { LiveCommunicationHealthPanel } from '@/components/operations/LiveCommunicationHealthPanel';
+import { LiveMultiphaseUnitGrid } from '@/components/operations/LiveMultiphaseUnitGrid';
+import { LiveTrendsPanelLive } from '@/components/operations/LiveTrendsPanelLive';
+import { OperationsHeaderRight } from '@/components/operations/OperationsHeaderRight';
+import { OperationsTelemetryRuntime } from '@/components/operations/OperationsTelemetryRuntime';
+import { PageHeader } from '@/components/shell/PageHeader';
 
 /**
- * Operations Console — Live Operations Overview.
+ * Operations Console — Live Operations Overview (F2B).
  *
- * Single-screen, single-glance view of every active multiphase well-testing
- * unit. Grid is driven by the `units` array, so a 3rd/4th/5th unit shows up
- * by appending to the mock (or, in F2, the live telemetry feed) — no layout
- * code changes.
+ * Server component shell that:
  *
- * This page is also the **canonical visual baseline** for the rest of the
- * console (units, sensors, alarms, reports, settings). Shared chrome lives
- * in components/shell/PageHeader and components/shell/Panel.
+ *   1. Mounts the OperationsTelemetryRuntime once on the client — that
+ *      starts the F2A SimulatedNormalizedTelemetryAdapter and connects
+ *      it to the singleton TelemetryStore.
+ *   2. Renders the page chrome statically (header, layout) so the SSR
+ *      output is fast and indexable.
+ *   3. Delegates the data-rendering parts to client components that
+ *      subscribe to the store through F2A hooks.
+ *
+ * Visual baseline preserved from F2A — same grid, same right rail, same
+ * page header. Static panels (FieldConditionsPanel) remain unchanged;
+ * data-driven panels are F2B "Live*" components rendered alongside them.
  */
 
-const gridColsByCount = (n: number): string => {
-  if (n <= 1) return 'grid-cols-1';
-  if (n <= 4) return 'grid-cols-1 xl:grid-cols-2';
-  return 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3';
-};
-
 export default function OperationsPage() {
-  const density: 'comfortable' | 'compact' = units.length >= 5 ? 'compact' : 'comfortable';
-  const gridCols = gridColsByCount(units.length);
-
-  const inAlarm = units.some((u) => u.status === 'ALARM' || u.status === 'OFFLINE');
-  const globalState = inAlarm ? 'Attention Required' : 'All Systems Nominal';
-
   return (
     <div className="flex flex-col gap-4">
+      <OperationsTelemetryRuntime />
+
       <PageHeader
         title="Live Operations Overview"
-        subtitle="Real-time status of active well testing units"
-        right={
-          <>
-            <StatusChip>
-              {units.length} Active Unit{units.length === 1 ? '' : 's'}
-            </StatusChip>
-            <StatusChip tone={inAlarm ? 'alarm' : 'normal'}>{globalState}</StatusChip>
-          </>
-        }
+        subtitle="Real-time status of active well testing units · F2 simulated normalized stream"
+        right={<OperationsHeaderRight />}
       />
 
       <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4">
         {/* Main column — units + trends */}
         <div className="flex flex-col gap-4 min-w-0">
-          <section className={`grid gap-3 ${gridCols}`} aria-label="Active multiphase units">
-            {units.map((unit) => (
-              <MultiphaseUnitCard key={unit.id} unit={unit} density={density} />
-            ))}
-          </section>
-
-          <LiveTrendsPanel units={units} />
+          <LiveMultiphaseUnitGrid />
+          <LiveTrendsPanelLive />
         </div>
 
         {/* Right rail */}
         <aside className="flex flex-col gap-3 2xl:max-w-[320px]">
-          <ActiveAlarmsPanel />
-          <CommunicationHealthPanel />
+          <LiveActiveAlarmsPanel jobs={OPERATIONS_JOBS.map((b) => b.job)} />
+          <LiveCommunicationHealthPanel />
           <FieldConditionsPanel />
         </aside>
       </div>

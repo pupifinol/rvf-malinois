@@ -1,13 +1,13 @@
 /**
- * useActiveJobSnapshot — F2A.
+ * useActiveJobSnapshot — F2A (snapshot-identity-hardened in F2B).
  *
  * Returns the currently active job snapshot for the session. F2A is
  * mock-backed: it reads from `getActiveJobSnapshot()`. F2B/D will replace
  * this with a TanStack-Query call to the backend; the public shape stays
  * the same.
  *
- * Hooks must be safe in client components. This one keeps a stable
- * reference until the underlying snapshot pointer changes.
+ * `subscribe` and `getSnapshot` are hoisted to module scope so React 19's
+ * `useSyncExternalStore` sees stable references across renders.
  */
 'use client';
 
@@ -21,8 +21,8 @@ const unsubscribeNoop = (): void => undefined;
 
 const subscribe = (_listener: () => void): (() => void) => {
   // F2A: mock data does not change at runtime. The unused listener is
-  // accepted for the useSyncExternalStore contract. F2B will swap in a real
-  // subscription (e.g. snapshot-update event from the store).
+  // accepted for the useSyncExternalStore contract. F2B will swap in a
+  // real subscription (e.g. snapshot-update event from the store).
   return unsubscribeNoop;
 };
 

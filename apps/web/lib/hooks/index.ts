@@ -1,7 +1,10 @@
 export { useActiveJobSnapshot } from './useActiveJobSnapshot';
 export { useAlarmState, type UseAlarmStateOptions } from './useAlarmState';
 export { useConnectionStatus } from './useConnectionStatus';
+export { useHistoryBuffer } from './useHistoryBuffer';
 export { useLiveValue, type UseLiveValueOptions } from './useLiveValue';
+export { useNowTick } from './useNowTick';
+export { useTelemetryStore } from './useTelemetryStore';
 export {
   useUnitTelemetrySnapshot,
   type UseUnitTelemetrySnapshotOptions,

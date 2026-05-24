@@ -1,9 +1,10 @@
 'use client';
 
 import { StatusDot, cn } from '@rvf/ui';
-import { Bell, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { HeaderAlarmIndicator } from '@/components/operations/HeaderAlarmIndicator';
 import { useConnectionState } from '@/lib/realtime/RealtimeProvider';
 
 /**
@@ -20,13 +21,28 @@ import { useConnectionState } from '@/lib/realtime/RealtimeProvider';
  * in as a ReactNode prop — that lets the SVG be inlined at SSR so its
  * <text> elements pick up the page's Montserrat webfont.
  */
+/**
+ * Hydration-safe clock. SSR and the first client render both produce an
+ * empty string so the rendered markup matches; once mounted, the real
+ * time kicks in and ticks every second. Falls back to a fixed-width
+ * placeholder visually so the header doesn't reflow on hydration.
+ */
+const CLOCK_PLACEHOLDER = '  :  :  ';
+
+const formatClock = (): string => new Date().toLocaleTimeString('en-GB', { hour12: false });
+
 const useClock = (): string => {
-  const [now, setNow] = useState(() => new Date());
+  const [time, setTime] = useState<string>('');
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(id);
+    setTime(formatClock());
+    const id = window.setInterval(() => {
+      setTime(formatClock());
+    }, 1000);
+    return () => {
+      window.clearInterval(id);
+    };
   }, []);
-  return now.toLocaleTimeString('en-GB', { hour12: false });
+  return time || CLOCK_PLACEHOLDER;
 };
 
 interface TopbarProps {
@@ -64,16 +80,9 @@ export const Topbar = ({ wordmark }: TopbarProps) => {
         </span>
       </div>
 
-      {/* Right: alarms placeholder, clock, connection */}
+      {/* Right: alarm summary, clock, connection */}
       <div className="flex items-center gap-5">
-        <button
-          type="button"
-          className="flex items-center gap-2 text-text-secondary hover:text-text-primary"
-          aria-label="Open alarm center"
-        >
-          <Bell className="w-4 h-4" aria-hidden="true" />
-          <span className="text-micro uppercase tracking-micro font-medium">No active alarms</span>
-        </button>
+        <HeaderAlarmIndicator />
 
         <div className="flex items-center gap-2 text-text-primary tabular-nums">
           <Clock className="w-4 h-4 text-text-secondary" aria-hidden="true" />
