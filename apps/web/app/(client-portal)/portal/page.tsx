@@ -1,32 +1,17 @@
-import { Card, CardBody, CardHeader, CardLabel } from '@rvf/ui';
+import { ProductionOverview } from '@/components/portal/ProductionOverview';
 
 /**
- * Client portal landing — Phase F0 placeholder.
+ * Client Portal — Production Overview.
  *
- * UI/UX §5 — "the portal is the showcase: cleaner, lower density, the same
- * design system." F6 fleshes this out into the real customer surface.
+ * Customer-facing surface that lets the client follow the wells RVF is
+ * currently testing for them. Read-only by design (UI/UX §5): no alarms,
+ * no diagnostics, no internal telemetry health — just production, the
+ * three protagonist charts (oil, gas, water cut), and a per-well summary.
+ *
+ * Data today is mocked in `components/portal/data/clientPortal.mock.ts`.
+ * F6 swaps that for the tenant-scoped read-model API; the page composition
+ * is the API the back-end has to match.
  */
 export default function ClientPortalHome() {
-  return (
-    <div className="max-w-[1200px] mx-auto flex flex-col gap-7">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">Welcome</h1>
-        <p className="text-sm text-text-secondary mt-1">
-          Read-only view of your active Well Testing operations. The real surface launches in F6.
-        </p>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardLabel>Your wells</CardLabel>
-        </CardHeader>
-        <CardBody>
-          <p className="text-sm text-text-secondary">
-            No active jobs yet. Once a Well Testing service is in progress your wells will appear
-            here with their live readings and trend history.
-          </p>
-        </CardBody>
-      </Card>
-    </div>
-  );
+  return <ProductionOverview />;
 }
