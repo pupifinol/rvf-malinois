@@ -2,8 +2,6 @@
 
 import { cn } from '@rvf/ui';
 
-import type { UnitTwin } from './data/twin.mock';
-
 /**
  * UnitSelector — compact segmented selector that lives in the operational
  * header on /units. Mirrors the bordered chip language of `StatusChip` so
@@ -11,8 +9,12 @@ import type { UnitTwin } from './data/twin.mock';
  *
  * Data shape:
  *   - The component is dumb. It receives `units` + `activeId` + `onSelect`.
- *   - When wired to live data (F2), the page replaces the static `twins`
- *     mock with the WebSocket-driven list — no changes here.
+ *   - F4.5F narrowed the `units` prop from `UnitTwin[]` to the minimal
+ *     `UnitSelectorItem` shape so the same selector can be fed from either
+ *     the local twin mock OR the F4 backend via `useUnitsFleet()` (see
+ *     `apps/web/lib/hooks/useUnitsFleet.ts`). The selector itself only
+ *     reads `id` and `unitNumber` — the digital-twin payload (telemetry,
+ *     instruments, configuration) lives on the page, not here.
  *
  * Behavior:
  *   - Always renders the full unit list as buttons; the active one is
@@ -22,8 +24,14 @@ import type { UnitTwin } from './data/twin.mock';
  *     screens fall back to "U1" via the secondary span so the selector
  *     never wraps.
  */
+
+export interface UnitSelectorItem {
+  id: string;
+  unitNumber: number;
+}
+
 export interface UnitSelectorProps {
-  units: readonly UnitTwin[];
+  units: readonly UnitSelectorItem[];
   activeId: string;
   onSelect: (id: string) => void;
 }

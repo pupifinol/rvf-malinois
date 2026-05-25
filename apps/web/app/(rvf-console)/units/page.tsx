@@ -22,6 +22,7 @@ import { UnitProfileTag } from '@/components/units-twin/UnitProfileTag';
 import { UnitSelector } from '@/components/units-twin/UnitSelector';
 import { UnitStatusBar } from '@/components/units-twin/UnitStatusBar';
 import { UnitTabs } from '@/components/units-twin/UnitTabs';
+import { useUnitsFleet } from '@/lib/hooks/useUnitsFleet';
 
 /**
  * Units — Process Twin (active unit).
@@ -45,6 +46,16 @@ import { UnitTabs } from '@/components/units-twin/UnitTabs';
  * Production trends live on /operations, not here.
  */
 export default function UnitsPage() {
+  // F4.5F — selector roster comes from the data-source-aware hook (mock or
+  // F4 backend). The active digital-twin payload (telemetry, instruments,
+  // calibration, alarm thresholds, …) still resolves out of the local
+  // `twins` mock because F4 has no live-reading payload yet — F4.6 will
+  // populate that side of the wire. When the active id has no local twin
+  // match (api mode listing F4 units that don't exist in the local mock),
+  // the page falls back to `twins[0]` so the process-twin panels still
+  // render without a runtime crash.
+  const fleet = useUnitsFleet();
+  const selectorItems = fleet.items.length > 0 ? fleet.items : twins;
   const [activeId, setActiveId] = useState<string>(twins[0].id);
   const twin = useMemo(() => {
     const match = twins.find((u) => u.id === activeId);
@@ -59,7 +70,7 @@ export default function UnitsPage() {
         right={
           <>
             <UnitProfileTag profile={twin.config.profileTag} />
-            <UnitSelector units={twins} activeId={twin.id} onSelect={setActiveId} />
+            <UnitSelector units={selectorItems} activeId={twin.id} onSelect={setActiveId} />
             <StatusChip
               tone={
                 twin.status === 'ALARM'
