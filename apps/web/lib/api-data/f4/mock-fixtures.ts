@@ -31,8 +31,11 @@
 import type {
   AlarmRuleWithTag,
   CanonicalTag,
+  CommissioningSnapshot,
   EquipmentType,
   EquipmentTypeSummary,
+  JobDetail,
+  JobListRow,
   MeasurementUnitDetail,
   MeasurementUnitListRow,
   SensorType,
@@ -842,3 +845,150 @@ export const MOCK_F4_MEASUREMENT_UNIT_DETAILS: Readonly<Record<string, Measureme
     [HP_001_ID]: HP_001_DETAIL,
     [LP_001_ID]: LP_001_DETAIL,
   });
+
+// =============================================================================
+// F4.5D — Jobs + CommissioningSnapshot
+// =============================================================================
+//
+// Mirrors the F4.3 seed: a single reference job anchored on HP-001 with an
+// immutable commissioning snapshot. The seed produces one row; the fixture
+// reproduces it. Fixture-only synthetic rows are deliberately avoided so
+// `MOCK_F4_JOBS.length === 1` matches the F4.3 baseline exactly.
+//
+// JSONB fields (`effectiveThresholds`, `sensorMappings`, `engineeringEnvelope`,
+// `ruleVersions`) carry the same content the seed inserts — they are typed
+// `unknown` on the API surface (Prisma JSON), but the fixture writes a
+// concrete object literal so the view-model helpers in `jobs.ts` can read it
+// with the same defensive narrowing they would apply to a real backend
+// response.
+
+const REFERENCE_WELL_ID = '00000000-0000-0000-0000-000000004400';
+const REFERENCE_JOB_ID = '00000000-0000-0000-0000-000000004444';
+const REFERENCE_SNAPSHOT_ID = '00000000-0000-0000-0000-000000004499';
+const ADMIN_USER_ID = '00000000-0000-0000-0000-000000000011';
+
+const REFERENCE_JOB_STARTED_AT = MOCK_TIMESTAMP;
+
+const HP_001_SENSOR_MAPPINGS_JSON = HP_001_SENSOR_SEEDS.map((s) => ({
+  instrument_tag: s.instrumentTag,
+  canonical_tag: s.transmitterModel.startsWith('Reference')
+    ? canonicalTagFor(s.instrumentTag)
+    : 'unknown',
+}));
+
+function canonicalTagFor(instrumentTag: string): string {
+  // Map each HP-001 instrument tag to its canonical tag (mirrors F4.3 seed).
+  const map: Record<string, string> = {
+    'HP-PIT-001': 'p_inlet',
+    'HP-PIT-002': 'p_outlet',
+    'HP-TIT-001': 't_inlet',
+    'HP-FIT-001': 'q_liquid',
+    'HP-FIT-002': 'q_gas',
+    'HP-LIT-001': 'level_separator',
+    'HP-VIT-001': 'vib_x',
+  };
+  return map[instrumentTag] ?? instrumentTag;
+}
+
+const HP_001_EFFECTIVE_THRESHOLDS_JSON = HP_001_ALARM_SEEDS.map((a) => ({
+  canonical_tag: a.canonicalTagName,
+  severity: a.severity,
+  kind: a.thresholdKind,
+  value: a.value,
+}));
+
+const HP_001_RULE_VERSIONS_JSON = HP_001_ALARM_SEEDS.map((a) => ({
+  canonical_tag: a.canonicalTagName,
+  severity: a.severity,
+  version: 1,
+}));
+
+const HP_001_ENGINEERING_ENVELOPE_JSON = {
+  max_pressure: 5000,
+  max_flow_rate: 10000,
+  max_temperature: 250,
+  max_vibration: 1.0,
+  max_differential_pressure: 500,
+  max_volume: null,
+  max_gas_rate: 5.0,
+  engineering_unit_set: HP_001_ENGINEERING_UNIT_SET,
+};
+
+const REFERENCE_COMMISSIONING_SNAPSHOT: CommissioningSnapshot = {
+  id: REFERENCE_SNAPSHOT_ID,
+  tenantId: RVF_INTERNAL_TENANT_ID,
+  jobId: REFERENCE_JOB_ID,
+  unitId: HP_001_ID,
+  takenAt: MOCK_TIMESTAMP,
+  effectiveThresholds: HP_001_EFFECTIVE_THRESHOLDS_JSON,
+  sensorMappings: HP_001_SENSOR_MAPPINGS_JSON,
+  engineeringEnvelope: HP_001_ENGINEERING_ENVELOPE_JSON,
+  ruleVersions: HP_001_RULE_VERSIONS_JSON,
+  immutable: true,
+  createdAt: MOCK_TIMESTAMP,
+};
+
+const REFERENCE_JOB_LIST_ROW: JobListRow = {
+  id: REFERENCE_JOB_ID,
+  tenantId: RVF_INTERNAL_TENANT_ID,
+  wellId: REFERENCE_WELL_ID,
+  unitId: HP_001_ID,
+  // The F4.3 seed initially creates the job with a null FK and later updates
+  // it to point at the snapshot. By the time a frontend `findById` reads the
+  // row the FK is populated; the mock fixture matches that final state.
+  commissioningSnapshotId: REFERENCE_SNAPSHOT_ID,
+  engineerId: ADMIN_USER_ID,
+  status: 'in_progress',
+  startedAt: REFERENCE_JOB_STARTED_AT,
+  closedAt: null,
+  createdAt: MOCK_TIMESTAMP,
+  updatedAt: MOCK_TIMESTAMP,
+  tenant: { id: RVF_INTERNAL_TENANT_ID, name: 'RVF Internal', status: 'active' },
+  well: { id: REFERENCE_WELL_ID, name: 'Reference Well A', fieldOrSite: 'Reference Field' },
+  unit: { id: HP_001_ID, code: 'HP-001', name: 'High Pressure / High Flow Test Unit' },
+};
+
+const REFERENCE_JOB_DETAIL: JobDetail = {
+  ...REFERENCE_JOB_LIST_ROW,
+  well: {
+    id: REFERENCE_WELL_ID,
+    name: 'Reference Well A',
+    fieldOrSite: 'Reference Field',
+    location: 'Local Dev',
+    type: 'test',
+    fluid: 'multiphase',
+    designLimits: {
+      max_pressure_psi: 5000,
+      max_temperature_degF: 250,
+      max_liquid_flow_bpd: 10000,
+      max_gas_flow_MMSCFD: 5,
+    },
+  },
+  unit: {
+    id: HP_001_ID,
+    code: 'HP-001',
+    name: 'High Pressure / High Flow Test Unit',
+    serialNumber: 'RVF-HP-001',
+    status: 'active',
+    operatingProfile: 'high_pressure_high_flow',
+    location: 'Yard / Test Bench',
+    equipmentType: EMMAD_SUMMARY,
+  },
+  engineer: { id: ADMIN_USER_ID, displayName: 'Admin Placeholder', role: 'admin' },
+  commissioningSnapshot: REFERENCE_COMMISSIONING_SNAPSHOT,
+};
+
+export const MOCK_F4_JOBS: readonly JobListRow[] = Object.freeze([REFERENCE_JOB_LIST_ROW]);
+
+/**
+ * Lookup table keyed by `Job.id`. Used by the `adapterGetJob` mock branch.
+ * New mock jobs must be added both to `MOCK_F4_JOBS` (list rows) and to this
+ * map (detail rows).
+ */
+export const MOCK_F4_JOB_DETAILS: Readonly<Record<string, JobDetail>> = Object.freeze({
+  [REFERENCE_JOB_ID]: REFERENCE_JOB_DETAIL,
+});
+
+export const MOCK_F4_COMMISSIONING_SNAPSHOTS: readonly CommissioningSnapshot[] = Object.freeze([
+  REFERENCE_COMMISSIONING_SNAPSHOT,
+]);

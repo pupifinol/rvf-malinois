@@ -31,6 +31,17 @@ export {
   deriveGasUnit,
   toMeasurementUnitSummaryViewModel,
 } from './equipment';
+export {
+  type ListJobsParams,
+  type JobRuntime,
+  type CommissioningSummary,
+  type JobListItemViewModel,
+  adapterListJobs,
+  adapterGetJob,
+  deriveJobRuntime,
+  deriveCommissioningSummary,
+  toJobListItemViewModel,
+} from './jobs';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.
@@ -41,4 +52,7 @@ export {
   MOCK_F4_EQUIPMENT_TYPES,
   MOCK_F4_MEASUREMENT_UNITS,
   MOCK_F4_MEASUREMENT_UNIT_DETAILS,
+  MOCK_F4_JOBS,
+  MOCK_F4_JOB_DETAILS,
+  MOCK_F4_COMMISSIONING_SNAPSHOTS,
 } from './mock-fixtures';
