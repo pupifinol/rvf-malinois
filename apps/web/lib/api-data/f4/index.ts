@@ -17,7 +17,28 @@ export {
   adapterListCanonicalTags,
   adapterGetCanonicalTag,
 } from './tags';
+export {
+  type ListMeasurementUnitsParams,
+  type MeasurementUnitSummaryViewModel,
+  adapterListEquipmentTypes,
+  adapterGetEquipmentType,
+  adapterListMeasurementUnits,
+  adapterGetMeasurementUnit,
+  deriveSensorsCount,
+  deriveAlarmsCount,
+  derivePressureUnit,
+  deriveFlowUnit,
+  deriveGasUnit,
+  toMeasurementUnitSummaryViewModel,
+} from './equipment';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.
-export { MOCK_F4_TENANTS, MOCK_F4_WELLS, MOCK_F4_CANONICAL_TAGS } from './mock-fixtures';
+export {
+  MOCK_F4_TENANTS,
+  MOCK_F4_WELLS,
+  MOCK_F4_CANONICAL_TAGS,
+  MOCK_F4_EQUIPMENT_TYPES,
+  MOCK_F4_MEASUREMENT_UNITS,
+  MOCK_F4_MEASUREMENT_UNIT_DETAILS,
+} from './mock-fixtures';

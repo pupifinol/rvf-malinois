@@ -28,7 +28,21 @@
  * that need a real id must run the seed and query the API.
  */
 
-import type { CanonicalTag, Tenant, Well } from '@/lib/api/f4';
+import type {
+  AlarmRuleWithTag,
+  CanonicalTag,
+  EquipmentType,
+  EquipmentTypeSummary,
+  MeasurementUnitDetail,
+  MeasurementUnitListRow,
+  SensorType,
+  SensorWithTransmitters,
+  Tenant,
+  TransmitterDevice,
+  UnitConfigurationRow,
+  UnitOperatingEnvelopeRow,
+  Well,
+} from '@/lib/api/f4';
 
 const MOCK_TIMESTAMP = '2026-05-24T00:00:00.000Z';
 
@@ -254,3 +268,577 @@ function hashSuffix(name: string): string {
   const hex = h.toString(16).padStart(8, '0');
   return `0000${hex}`;
 }
+
+// =============================================================================
+// F4.5C — Equipment types + measurement units
+// =============================================================================
+//
+// Mirrors the F4.3 seed (`apps/backend/prisma/seed.f4.ts`): two equipment-type
+// templates (EMMAD, EMGAD) and two measurement units (HP-001, LP-001). HP-001
+// is provided with the full F4.4D unit-detail include shape — every sensor,
+// its currently-installed transmitter, the current `unitConfiguration`, the
+// current `unitOperatingEnvelope`, and every current `alarmRule` joined with
+// a canonical-tag scalar. LP-001 is provided with a smaller representative
+// detail so the fixture stays readable; both list-row rows expose the same
+// `equipmentType` summary the F4 backend embeds.
+
+const EMMAD_ID = '00000000-0000-0000-0000-0000000044d1';
+const EMGAD_ID = '00000000-0000-0000-0000-0000000044d2';
+const HP_001_ID = '00000000-0000-0000-0000-000000004411';
+const LP_001_ID = '00000000-0000-0000-0000-000000004412';
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000010';
+
+const EMMAD_DEFAULT_TEMPLATE = {
+  loops: [
+    { name: 'inlet_pressure', canonical_tag: 'p_inlet', engineering_unit: 'psi' },
+    { name: 'outlet_pressure', canonical_tag: 'p_outlet', engineering_unit: 'psi' },
+    { name: 'inlet_temperature', canonical_tag: 't_inlet', engineering_unit: 'degF' },
+    { name: 'liquid_flow', canonical_tag: 'q_liquid', engineering_unit: 'bpd' },
+    { name: 'gas_flow', canonical_tag: 'q_gas', engineering_unit: 'MMSCFD' },
+    { name: 'separator_level', canonical_tag: 'level_separator', engineering_unit: '%' },
+    { name: 'vibration_x', canonical_tag: 'vib_x', engineering_unit: 'in/s' },
+  ],
+};
+
+const EMGAD_DEFAULT_TEMPLATE = {
+  loops: [
+    { name: 'inlet_pressure', canonical_tag: 'p_inlet', engineering_unit: 'psi' },
+    { name: 'inlet_temperature', canonical_tag: 't_inlet', engineering_unit: 'degF' },
+    { name: 'gas_flow', canonical_tag: 'q_gas', engineering_unit: 'MMSCFD' },
+    { name: 'gas_total', canonical_tag: 'v_gas_total', engineering_unit: 'MMSCF' },
+  ],
+};
+
+const EMMAD_TYPE: EquipmentType = {
+  id: EMMAD_ID,
+  name: 'EMMAD',
+  description:
+    'Well testing / measurement unit template for oil, gas and liquid operational monitoring.',
+  defaultSensorTemplate: EMMAD_DEFAULT_TEMPLATE,
+  pidReference: 'EMMAD-generic',
+  createdAt: MOCK_TIMESTAMP,
+  updatedAt: MOCK_TIMESTAMP,
+};
+
+const EMGAD_TYPE: EquipmentType = {
+  id: EMGAD_ID,
+  name: 'EMGAD',
+  description: 'Gas measurement / gas analysis unit template for gas-focused monitoring.',
+  defaultSensorTemplate: EMGAD_DEFAULT_TEMPLATE,
+  pidReference: 'EMGAD-generic',
+  createdAt: MOCK_TIMESTAMP,
+  updatedAt: MOCK_TIMESTAMP,
+};
+
+const EMMAD_SUMMARY: EquipmentTypeSummary = {
+  id: EMMAD_ID,
+  name: EMMAD_TYPE.name,
+  pidReference: EMMAD_TYPE.pidReference,
+};
+
+export const MOCK_F4_EQUIPMENT_TYPES: readonly EquipmentType[] = Object.freeze([
+  EMMAD_TYPE,
+  EMGAD_TYPE,
+]);
+
+export const MOCK_F4_MEASUREMENT_UNITS: readonly MeasurementUnitListRow[] = Object.freeze([
+  {
+    id: HP_001_ID,
+    tenantId: RVF_INTERNAL_TENANT_ID,
+    equipmentTypeId: EMMAD_ID,
+    code: 'HP-001',
+    serialNumber: 'RVF-HP-001',
+    name: 'High Pressure / High Flow Test Unit',
+    status: 'active',
+    operatingProfile: 'high_pressure_high_flow',
+    location: 'Yard / Test Bench',
+    createdAt: MOCK_TIMESTAMP,
+    updatedAt: MOCK_TIMESTAMP,
+    equipmentType: EMMAD_SUMMARY,
+  },
+  {
+    id: LP_001_ID,
+    tenantId: RVF_INTERNAL_TENANT_ID,
+    equipmentTypeId: EMMAD_ID,
+    code: 'LP-001',
+    serialNumber: 'RVF-LP-001',
+    name: 'Low Pressure / Medium Flow Test Unit',
+    status: 'active',
+    operatingProfile: 'low',
+    location: 'Yard / Test Bench',
+    createdAt: MOCK_TIMESTAMP,
+    updatedAt: MOCK_TIMESTAMP,
+    equipmentType: EMMAD_SUMMARY,
+  },
+]);
+
+interface SensorSeed {
+  instrumentTag: string;
+  name: string;
+  sensorType: SensorType;
+  engineeringUnit: string;
+  minRange: number;
+  maxRange: number;
+  transmitterProtocol: TransmitterDevice['protocol'];
+  transmitterSignalType: string;
+  transmitterModel: string;
+}
+
+interface AlarmSeed {
+  canonicalTagName: string;
+  severity: 'warning' | 'critical';
+  thresholdKind: 'high' | 'high_high';
+  value: number;
+  message: string;
+}
+
+const HP_001_SENSOR_SEEDS: SensorSeed[] = [
+  {
+    instrumentTag: 'HP-PIT-001',
+    name: 'HP-001 inlet pressure',
+    sensorType: 'pressure',
+    engineeringUnit: 'psi',
+    minRange: 0,
+    maxRange: 6000,
+    transmitterProtocol: '4-20mA',
+    transmitterSignalType: 'analog',
+    transmitterModel: 'Reference Pressure Transmitter',
+  },
+  {
+    instrumentTag: 'HP-PIT-002',
+    name: 'HP-001 outlet pressure',
+    sensorType: 'pressure',
+    engineeringUnit: 'psi',
+    minRange: 0,
+    maxRange: 6000,
+    transmitterProtocol: '4-20mA',
+    transmitterSignalType: 'analog',
+    transmitterModel: 'Reference Pressure Transmitter',
+  },
+  {
+    instrumentTag: 'HP-TIT-001',
+    name: 'HP-001 inlet temperature',
+    sensorType: 'temperature',
+    engineeringUnit: 'degF',
+    minRange: -40,
+    maxRange: 350,
+    transmitterProtocol: '4-20mA',
+    transmitterSignalType: 'analog',
+    transmitterModel: 'Reference Temperature Transmitter',
+  },
+  {
+    instrumentTag: 'HP-FIT-001',
+    name: 'HP-001 liquid flow',
+    sensorType: 'flow',
+    engineeringUnit: 'bpd',
+    minRange: 0,
+    maxRange: 12000,
+    transmitterProtocol: 'HART',
+    transmitterSignalType: 'digital',
+    transmitterModel: 'Reference Flow Transmitter',
+  },
+  {
+    instrumentTag: 'HP-FIT-002',
+    name: 'HP-001 gas flow',
+    sensorType: 'flow',
+    engineeringUnit: 'MMSCFD',
+    minRange: 0,
+    maxRange: 6,
+    transmitterProtocol: 'HART',
+    transmitterSignalType: 'digital',
+    transmitterModel: 'Reference Flow Transmitter',
+  },
+  {
+    instrumentTag: 'HP-LIT-001',
+    name: 'HP-001 separator level',
+    sensorType: 'level',
+    engineeringUnit: '%',
+    minRange: 0,
+    maxRange: 100,
+    transmitterProtocol: '4-20mA',
+    transmitterSignalType: 'analog',
+    transmitterModel: 'Reference Level Transmitter',
+  },
+  {
+    instrumentTag: 'HP-VIT-001',
+    name: 'HP-001 vibration X',
+    sensorType: 'vibration',
+    engineeringUnit: 'in/s',
+    minRange: 0,
+    maxRange: 2,
+    transmitterProtocol: '4-20mA',
+    transmitterSignalType: 'analog',
+    transmitterModel: 'Reference Vibration Transmitter',
+  },
+];
+
+const LP_001_SENSOR_SEEDS: SensorSeed[] = [
+  {
+    instrumentTag: 'LP-PIT-001',
+    name: 'LP-001 inlet pressure',
+    sensorType: 'pressure',
+    engineeringUnit: 'psi',
+    minRange: 0,
+    maxRange: 1000,
+    transmitterProtocol: '4-20mA',
+    transmitterSignalType: 'analog',
+    transmitterModel: 'Reference Pressure Transmitter',
+  },
+  {
+    instrumentTag: 'LP-FIT-001',
+    name: 'LP-001 liquid flow',
+    sensorType: 'flow',
+    engineeringUnit: 'bpd',
+    minRange: 0,
+    maxRange: 4000,
+    transmitterProtocol: 'HART',
+    transmitterSignalType: 'digital',
+    transmitterModel: 'Reference Flow Transmitter',
+  },
+];
+
+const HP_001_ALARM_SEEDS: AlarmSeed[] = [
+  {
+    canonicalTagName: 'p_inlet',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 4500,
+    message: 'HP-001 inlet pressure approaching design limit (warning).',
+  },
+  {
+    canonicalTagName: 'p_inlet',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 5000,
+    message: 'HP-001 inlet pressure at design limit (critical).',
+  },
+  {
+    canonicalTagName: 'p_outlet',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 4200,
+    message: 'HP-001 outlet pressure elevated (warning).',
+  },
+  {
+    canonicalTagName: 'p_outlet',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 4800,
+    message: 'HP-001 outlet pressure critical (critical).',
+  },
+  {
+    canonicalTagName: 't_inlet',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 220,
+    message: 'HP-001 inlet temperature elevated (warning).',
+  },
+  {
+    canonicalTagName: 't_inlet',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 250,
+    message: 'HP-001 inlet temperature critical (critical).',
+  },
+  {
+    canonicalTagName: 'q_liquid',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 9000,
+    message: 'HP-001 liquid flow approaching capacity (warning).',
+  },
+  {
+    canonicalTagName: 'q_liquid',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 10000,
+    message: 'HP-001 liquid flow at capacity (critical).',
+  },
+  {
+    canonicalTagName: 'q_gas',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 4.5,
+    message: 'HP-001 gas flow elevated (warning).',
+  },
+  {
+    canonicalTagName: 'q_gas',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 5.0,
+    message: 'HP-001 gas flow critical (critical).',
+  },
+  {
+    canonicalTagName: 'level_separator',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 80,
+    message: 'HP-001 separator level high (warning).',
+  },
+  {
+    canonicalTagName: 'level_separator',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 90,
+    message: 'HP-001 separator level critical (critical).',
+  },
+  {
+    canonicalTagName: 'vib_x',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 0.8,
+    message: 'HP-001 vibration elevated (warning).',
+  },
+  {
+    canonicalTagName: 'vib_x',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 1.0,
+    message: 'HP-001 vibration critical (critical).',
+  },
+];
+
+const LP_001_ALARM_SEEDS: AlarmSeed[] = [
+  {
+    canonicalTagName: 'p_inlet',
+    severity: 'warning',
+    thresholdKind: 'high',
+    value: 600,
+    message: 'LP-001 inlet pressure elevated (warning).',
+  },
+  {
+    canonicalTagName: 'p_inlet',
+    severity: 'critical',
+    thresholdKind: 'high_high',
+    value: 750,
+    message: 'LP-001 inlet pressure at design limit (critical).',
+  },
+];
+
+const HP_001_ENGINEERING_UNIT_SET = {
+  pressure: 'psi',
+  differential_pressure: 'psi',
+  temperature: 'degF',
+  liquid_flow: 'bpd',
+  gas_flow: 'MMSCFD',
+  volume_liquid: 'bbl',
+  volume_gas: 'MMSCF',
+  level: '%',
+  vibration: 'in/s',
+};
+
+const LP_001_ENGINEERING_UNIT_SET = HP_001_ENGINEERING_UNIT_SET;
+
+function buildSensorsWithTransmitters(
+  unitId: string,
+  seeds: SensorSeed[],
+): SensorWithTransmitters[] {
+  return seeds.map((s) => {
+    const sensorId = `00000000-0000-0000-0000-${hashSuffix(`sensor:${unitId}:${s.instrumentTag}`)}`;
+    const transmitterId = `00000000-0000-0000-0000-${hashSuffix(`tx:${unitId}:${s.instrumentTag}`)}`;
+    const transmitter: TransmitterDevice = {
+      id: transmitterId,
+      tenantId: RVF_INTERNAL_TENANT_ID,
+      sensorId,
+      serialNumber: `TX-${s.instrumentTag}`,
+      manufacturer: 'RVF Reference',
+      model: s.transmitterModel,
+      protocol: s.transmitterProtocol,
+      signalType: s.transmitterSignalType,
+      modbusAddress: null,
+      registerMapReference: null,
+      channel: null,
+      firmwareVersion: '1.0.0',
+      calibrationDate: '2026-05-24',
+      calibrationRangeMin: String(s.minRange),
+      calibrationRangeMax: String(s.maxRange),
+      calibrationReference: 'F4.3 reference seed',
+      batteryStatus: null,
+      installationStatus: 'installed',
+      installedAt: MOCK_TIMESTAMP,
+      removedAt: null,
+      createdAt: MOCK_TIMESTAMP,
+      updatedAt: MOCK_TIMESTAMP,
+    };
+    return {
+      id: sensorId,
+      tenantId: RVF_INTERNAL_TENANT_ID,
+      unitId,
+      type: s.sensorType,
+      name: s.name,
+      instrumentTag: s.instrumentTag,
+      enabled: true,
+      minRange: String(s.minRange),
+      maxRange: String(s.maxRange),
+      engineeringUnit: s.engineeringUnit,
+      createdAt: MOCK_TIMESTAMP,
+      updatedAt: MOCK_TIMESTAMP,
+      transmitterDevices: [transmitter],
+    };
+  });
+}
+
+function buildAlarmRules(unitId: string, seeds: AlarmSeed[]): AlarmRuleWithTag[] {
+  return seeds.map((a) => {
+    const ruleId = `00000000-0000-0000-0000-${hashSuffix(`alarm:${unitId}:${a.canonicalTagName}:${a.severity}`)}`;
+    const tag = MOCK_F4_CANONICAL_TAGS.find((t) => t.name === a.canonicalTagName);
+    const canonicalTagId = tag
+      ? tag.id
+      : `00000000-0000-0000-0000-${hashSuffix(a.canonicalTagName)}`;
+    return {
+      id: ruleId,
+      tenantId: RVF_INTERNAL_TENANT_ID,
+      unitId,
+      canonicalTagId,
+      severity: a.severity,
+      enabled: true,
+      lowLowThreshold: null,
+      lowThreshold: null,
+      highThreshold: a.thresholdKind === 'high' ? String(a.value) : null,
+      highHighThreshold: a.thresholdKind === 'high_high' ? String(a.value) : null,
+      deadband: null,
+      delaySeconds: null,
+      messageTemplate: a.message,
+      version: 1,
+      isCurrent: true,
+      createdBy: SYSTEM_USER_ID,
+      createdAt: MOCK_TIMESTAMP,
+      canonicalTag: {
+        id: canonicalTagId,
+        name: a.canonicalTagName,
+        displayName: tag ? tag.displayName : a.canonicalTagName,
+        canonicalUnit: tag ? tag.canonicalUnit : '',
+        category: tag ? tag.category : '',
+        precision: tag ? tag.precision : 0,
+      },
+    };
+  });
+}
+
+function buildUnitConfiguration(
+  unitId: string,
+  sensors: SensorWithTransmitters[],
+): UnitConfigurationRow {
+  return {
+    id: `00000000-0000-0000-0000-${hashSuffix(`config:${unitId}`)}`,
+    tenantId: RVF_INTERNAL_TENANT_ID,
+    unitId,
+    version: 1,
+    configuration: { notes: 'F4.3 seed initial configuration.' },
+    enabledSensors: sensors.map((s) => s.instrumentTag),
+    engineeringUnitOverrides: {},
+    displayPrecisionOverrides: {},
+    isCurrent: true,
+    createdBy: SYSTEM_USER_ID,
+    createdAt: MOCK_TIMESTAMP,
+  };
+}
+
+function buildUnitOperatingEnvelope(
+  unitId: string,
+  envelope: {
+    maxPressure: number;
+    maxFlowRate: number;
+    maxTemperature: number;
+    maxVibration: number;
+    maxDifferentialPressure: number;
+    maxGasRate: number;
+  },
+  engineeringUnitSet: Record<string, string>,
+): UnitOperatingEnvelopeRow {
+  return {
+    id: `00000000-0000-0000-0000-${hashSuffix(`envelope:${unitId}`)}`,
+    tenantId: RVF_INTERNAL_TENANT_ID,
+    unitId,
+    version: 1,
+    maxPressure: String(envelope.maxPressure),
+    maxFlowRate: String(envelope.maxFlowRate),
+    maxTemperature: String(envelope.maxTemperature),
+    maxVibration: String(envelope.maxVibration),
+    maxDifferentialPressure: String(envelope.maxDifferentialPressure),
+    maxVolume: null,
+    maxGasRate: String(envelope.maxGasRate),
+    engineeringUnitSet,
+    isCurrent: true,
+    createdBy: SYSTEM_USER_ID,
+    createdAt: MOCK_TIMESTAMP,
+  };
+}
+
+const HP_001_SENSORS = buildSensorsWithTransmitters(HP_001_ID, HP_001_SENSOR_SEEDS);
+const LP_001_SENSORS = buildSensorsWithTransmitters(LP_001_ID, LP_001_SENSOR_SEEDS);
+
+const HP_001_DETAIL: MeasurementUnitDetail = {
+  id: HP_001_ID,
+  tenantId: RVF_INTERNAL_TENANT_ID,
+  equipmentTypeId: EMMAD_ID,
+  code: 'HP-001',
+  serialNumber: 'RVF-HP-001',
+  name: 'High Pressure / High Flow Test Unit',
+  status: 'active',
+  operatingProfile: 'high_pressure_high_flow',
+  location: 'Yard / Test Bench',
+  createdAt: MOCK_TIMESTAMP,
+  updatedAt: MOCK_TIMESTAMP,
+  equipmentType: EMMAD_TYPE,
+  sensors: HP_001_SENSORS,
+  unitConfigurations: [buildUnitConfiguration(HP_001_ID, HP_001_SENSORS)],
+  unitOperatingEnvelopes: [
+    buildUnitOperatingEnvelope(
+      HP_001_ID,
+      {
+        maxPressure: 5000,
+        maxFlowRate: 10000,
+        maxTemperature: 250,
+        maxVibration: 1.0,
+        maxDifferentialPressure: 500,
+        maxGasRate: 5.0,
+      },
+      HP_001_ENGINEERING_UNIT_SET,
+    ),
+  ],
+  alarmRules: buildAlarmRules(HP_001_ID, HP_001_ALARM_SEEDS),
+};
+
+const LP_001_DETAIL: MeasurementUnitDetail = {
+  id: LP_001_ID,
+  tenantId: RVF_INTERNAL_TENANT_ID,
+  equipmentTypeId: EMMAD_ID,
+  code: 'LP-001',
+  serialNumber: 'RVF-LP-001',
+  name: 'Low Pressure / Medium Flow Test Unit',
+  status: 'active',
+  operatingProfile: 'low',
+  location: 'Yard / Test Bench',
+  createdAt: MOCK_TIMESTAMP,
+  updatedAt: MOCK_TIMESTAMP,
+  equipmentType: EMMAD_TYPE,
+  sensors: LP_001_SENSORS,
+  unitConfigurations: [buildUnitConfiguration(LP_001_ID, LP_001_SENSORS)],
+  unitOperatingEnvelopes: [
+    buildUnitOperatingEnvelope(
+      LP_001_ID,
+      {
+        maxPressure: 750,
+        maxFlowRate: 3000,
+        maxTemperature: 180,
+        maxVibration: 0.5,
+        maxDifferentialPressure: 150,
+        maxGasRate: 1.0,
+      },
+      LP_001_ENGINEERING_UNIT_SET,
+    ),
+  ],
+  alarmRules: buildAlarmRules(LP_001_ID, LP_001_ALARM_SEEDS),
+};
+
+/**
+ * Lookup table keyed by `MeasurementUnit.id`. Used by the `adapterGetMeasurementUnit`
+ * mock branch. New mock units must be added both to `MOCK_F4_MEASUREMENT_UNITS`
+ * (list rows) and to this map (detail rows).
+ */
+export const MOCK_F4_MEASUREMENT_UNIT_DETAILS: Readonly<Record<string, MeasurementUnitDetail>> =
+  Object.freeze({
+    [HP_001_ID]: HP_001_DETAIL,
+    [LP_001_ID]: LP_001_DETAIL,
+  });
