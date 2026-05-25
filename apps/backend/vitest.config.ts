@@ -5,10 +5,24 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     include: ['src/**/*.{test,spec}.ts'],
-    // The backend suite shares one PostgreSQL/TimescaleDB instance with the
-    // dev environment. Multiple test files create/mutate the same fixtures
-    // (jobs on EMMAD-01, snapshots, etc.). Running files serially keeps the
-    // shared state consistent without per-test database isolation overhead.
+    // F4.2B quarantine: specs under the directories below depend on the
+    // F1/F1.5 Prisma client (removed in F4.2). They are preserved in git for
+    // reference during the F4.4 rewrite but skipped here so `pnpm test` runs
+    // green on the F4.2 baseline. See
+    // docs/architecture/RVF_Malinois_F4_2B_Insulation_Strategy_Confirmation.md.
+    exclude: [
+      'node_modules/**',
+      'dist/**',
+      'src/wells/**',
+      'src/tenants/**',
+      'src/tags/**',
+      'src/equipment/**',
+      'src/jobs/**',
+      'src/telemetry/**',
+    ],
+    // The backend suite shares one PostgreSQL instance with the dev
+    // environment. Running files serially keeps shared fixtures consistent
+    // without per-test database isolation overhead.
     fileParallelism: false,
     coverage: {
       provider: 'v8',

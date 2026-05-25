@@ -11,5 +11,15 @@
     "incremental": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "src/wells/**",
+    "src/tenants/**",
+    "src/tags/**",
+    "src/equipment/**",
+    "src/jobs/**",
+    "src/telemetry/**"
+  ]
 }

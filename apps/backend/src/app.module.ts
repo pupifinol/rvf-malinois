@@ -2,36 +2,44 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 
 import { ConfigModule } from './config/config.module';
-import { EquipmentModule } from './equipment/equipment.module';
 import { HealthModule } from './health/health.module';
-import { JobsModule } from './jobs/jobs.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
-import { CanonicalTagsModule } from './tags/tags.module';
-import { TelemetryModule } from './telemetry/telemetry.module';
-import { TenantsModule } from './tenants/tenants.module';
-import { WellsModule } from './wells/wells.module';
 
 /**
- * AppModule — top-level wiring.
+ * AppModule — F4.2B QUARANTINE STATE.
  *
- * Dependency direction (top → bottom):
+ * Per the F4.2B insulation strategy
+ * (`docs/architecture/RVF_Malinois_F4_2B_Insulation_Strategy_Confirmation.md`,
+ * commit a8862e2), the F1/F1.5-dependent feature modules are temporarily
+ * removed from application bootstrap while the Prisma client is rebased on
+ * the F4 canonical schema. The modules' source files remain in the repo
+ * under `src/wells`, `src/tenants`, `src/tags`, `src/equipment`, `src/jobs`,
+ * and `src/telemetry`, and are excluded from typecheck / lint / test compile
+ * via `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`. They will
+ * be reactivated, one at a time, atop the F4 client during phase F4.4 (API
+ * adaptation).
  *
- *   ConfigModule       env first, everyone depends on it.
- *   LoggerModule       Pino logger, structured JSON in prod, pretty in dev.
- *   PrismaModule       database access (global).
- *   HealthModule       /health endpoint (independent of everything else).
- *   RealtimeModule     Socket.IO gateway (uses Config).
- *   --- F1 domain modules (read-only catalog + operations) ---
- *   CanonicalTagsModule   /api/v1/tags
- *   TenantsModule         /api/v1/tenants
- *   WellsModule           /api/v1/wells
- *   EquipmentModule       /api/v1/equipment/types|units
- *   JobsModule            /api/v1/jobs    + CommissioningService
+ * Quarantined for the F4.2 → F4.4 window:
+ *   - CanonicalTagsModule  (was: /api/v1/tags)
+ *   - TenantsModule        (was: /api/v1/tenants)
+ *   - WellsModule          (was: /api/v1/wells)
+ *   - EquipmentModule      (was: /api/v1/equipment)
+ *   - JobsModule           (was: /api/v1/jobs + CommissioningService)
+ *   - TelemetryModule      (was: /api/v1/telemetry trends + ingest scaffolding)
  *
- * Still to land: AuthModule (F1.5), TelemetryModule (F2), AlarmsModule,
- * AuditModule, IotPlatformAdapterModule (the ThingsBoard wrapper from §10
- * of system-architecture).
+ * Active during the quarantine window:
+ *   - ConfigModule       env-first; required by every other module.
+ *   - LoggerModule       Pino structured logging.
+ *   - PrismaModule       global Prisma client (F4 schema generated).
+ *   - HealthModule       /health endpoint, independent of feature modules.
+ *   - RealtimeModule     Socket.IO gateway scaffolding (no telemetry routing yet).
+ *
+ * Frontend continues to render via the F3 `lib/api-data/` mock adapter (per
+ * engineering-architecture §J); no API consumer is impacted by the
+ * quarantine. The Prisma client itself is generated successfully against
+ * the F4 baseline schema, so `PrismaService` boots; runtime connection to a
+ * database is not exercised in F4.2B.
  */
 @Module({
   imports: [
@@ -56,12 +64,6 @@ import { WellsModule } from './wells/wells.module';
     PrismaModule,
     HealthModule,
     RealtimeModule,
-    CanonicalTagsModule,
-    TenantsModule,
-    WellsModule,
-    EquipmentModule,
-    JobsModule,
-    TelemetryModule,
   ],
 })
 export class AppModule {}

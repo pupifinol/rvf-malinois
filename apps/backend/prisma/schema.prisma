@@ -1,29 +1,32 @@
-// RVF Malinois — Prisma schema (Phase F1: domain model + data foundations)
+// =============================================================================
+// RVF Malinois — Prisma schema (Phase F4.2 baseline)
+// =============================================================================
 //
-// Sources of truth:
-//   - docs/architecture/domain-model.md       (entities, relationships)
-//   - docs/adr/adr-register-v1.2.md           (ADR-001..ADR-004)
-//   - docs/architecture/telemetry-foundation.md (canonical tags, multi-tenant)
+// Canonical source of truth:
+//   database/schema/RVF_Malinois_F4_1_PostgreSQL_Schema.sql   (commit a475066)
+//   docs/architecture/RVF_Malinois_F4_Database_Foundation_Architecture.md
+//                                                            (commit f36923a)
+//   docs/adr/ADR-007_RVF_Malinois_Database_Foundation.md     (commit 8147399)
+//   docs/architecture/RVF_Malinois_F4_2A_Prisma_Reconciliation_Plan.md
+//                                                            (commit 7bd6103)
+//   docs/architecture/RVF_Malinois_F4_2B_Insulation_Strategy_Confirmation.md
+//                                                            (commit a8862e2)
 //
-// Core principle (domain-model §2):
-//   Separate the thing from its deployment, and freeze a copy at the job.
-//   Equipment is reusable (catalog). Deploying it on a well is an event
-//   that ends (job). Telemetry belongs to the job, never to the equipment
-//   or the well directly. The configuration that explains the telemetry is
-//   photographed and frozen per job (CommissioningSnapshot + JobSensorSnapshot).
-//
-// Three data natures (domain-model §3):
-//   Catalog    — editable, future-only effect. Tenant, Well, EquipmentType,
-//                EquipmentUnit, Sensor, CanonicalTag, User.
-//   Operation  — immutable once closed/frozen. Job, CommissioningSnapshot,
-//                JobSensorSnapshot, AlarmRule, OperationalEvent.
-//   Telemetry  — append-only, high volume. F1.5 adds the TimescaleDB
-//                hypertables (telemetry, sensor_health) + the late-data
-//                quarantine. F2 wires the ingestion adapters.
-//
-// Tenant isolation (telemetry-foundation §17):
-//   Every tenant-owned row carries tenant_id. F1 defines the columns + FKs;
-//   F1.5/F2 will add Postgres RLS + auth-derived caller context.
+// Notes carried over from F4.1 SQL (do not weaken):
+//   - UUID primary keys via pgcrypto's gen_random_uuid().
+//   - No TimescaleDB. telemetry_readings is a plain table, convertible to a
+//     hypertable later without redesign.
+//   - Multi-tenant isolation is column-level (tenant_id + FK) on every
+//     operational / canonical table.
+//   - CHECK constraints (status enums, kind enums, etc.) are NOT modeled as
+//     Prisma `enum` blocks. They live as CHECK constraints in the migration
+//     SQL. Prisma fields are plain `String`; allowed values are documented in
+//     /// comments.
+//   - Partial unique indexes (e.g. WHERE is_current = TRUE) are NOT modeled
+//     in Prisma. They are created in the migration via raw SQL.
+//   - live_readings_projection (DERIVED view, not canonical) is NOT modeled
+//     in Prisma. It is defined as raw SQL in the migration. F4.6 picks the
+//     final implementation (view, materialized view, upsert table).
 
 generator client {
   provider        = "prisma-client-js"
@@ -34,585 +37,619 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  extensions = [timescaledb]
+  extensions = [pgcrypto]
 }
 
 // =============================================================================
-// ENUMS — mirror packages/types/src/domain.ts where applicable so the
-// TypeScript layer and the database speak the same values.
+// A. Tenancy and identity
 // =============================================================================
 
-/// Tenant kind. RVF_INTERNAL = RVF itself; CLIENT = customer (Repsol, ...).
-enum TenantKind {
-  rvf_internal
-  client
-}
-
-/// Equipment category (ADR-004 §7). EMMAD has water-cut + cyclonic separator;
-/// EMGAD does not. `other` is the extension point.
-enum EquipmentCategory {
-  emmad
-  emgad
-  other
-}
-
-/// Sensor type — the catalog of instrument kinds RVF deploys today (ADR-001).
-enum SensorType {
-  pressure_scout
-  sentinel_rtd
-  wireless_totalizer
-  water_cut_analyzer
-  other
-}
-
-/// Engineering unit class — informs UI grouping and unit-conversion safety.
-enum EngineeringUnitClass {
-  pressure
-  temperature
-  flow
-  production
-  ratio
-  composition
-  level
-  dimensionless
-}
-
-/// Job lifecycle (domain-model §11). Transitions are owned by the service
-/// layer; once `closed`, the row is immutable from the application side.
-enum JobStatus {
-  scheduled
-  in_progress
-  closed
-}
-
-/// Telemetry quality (telemetry-foundation §4 + domain-model §14). First-class.
-enum Quality {
-  good
-  estimated
-  uncertain
-  bad
-  stale
-}
-
-/// ISA-18.2 alarm lifecycle (domain-model §15).
-enum AlarmState {
-  active
-  acknowledged
-  cleared
-  shelved
-}
-
-/// ISA-18.2 alarm severity.
-enum AlarmSeverity {
-  critical
-  high
-  medium
-  low
-}
-
-/// Alarm condition (telemetry-foundation §5). UPPERCASE to match the wire
-/// protocol and packages/types/src/domain.ts.
-enum AlarmCondition {
-  LO_LO
-  LO
-  HI
-  HI_HI
-  RATE
-  DEVIATION
-  NO_DATA
-}
-
-/// Role hierarchy (telemetry-foundation §18). Scope-to-tenant is a separate
-/// dimension (a single role can be granted across multiple tenants for RVF
-/// users; clients are always scoped to their own tenant).
-enum UserRole {
-  rvf_super_admin
-  rvf_admin
-  rvf_operations
-  rvf_field
-  rvf_analyst
-  client_admin
-  client_viewer
-  client_api
-}
-
-/// Operational event kind (minimal placeholder; domain-model §17). F3 enriches
-/// payload shapes; F1 stores `payload` as JSONB so we don't churn the schema.
-enum OperationalEventKind {
-  job_started
-  job_closed
-  choke_change
-  other
-}
-
-/// Future-proofing for ADR-001's PLC extension. F1 only ever stores `inbound`
-/// (read-only platform); `outbound` would land alongside a command path.
-/// Defined but not yet referenced by any model — wired in F2's telemetry tables.
-enum TelemetryDirection {
-  inbound
-}
-
-/// SignalFire device health status (domain-model §16). Distinct from
-/// telemetry `Quality` because battery + radio health is not a data-quality
-/// statement; it's a device-liveness statement.
-enum HealthStatus {
-  online
-  degraded
-  offline
-}
-
-/// Reason a late telemetry row landed in the quarantine table instead of the
-/// hypertable. Helps a future audit + retry workflow.
-enum LateTelemetryReason {
-  beyond_late_window
-  missing_active_job
-  unknown_canonical_tag
-  duplicate_seq
-  invalid_envelope
-}
-
-// =============================================================================
-// CATALOG — stable, editable; edits affect future jobs only (domain-model §3).
-// =============================================================================
-
-/// The root of multi-tenant isolation (domain-model §5).
-/// `code` is the human-readable identifier (lowercase, dashed): `repsol`,
-/// `rvf-internal`. `id` is an opaque cuid — renaming the code never breaks FKs.
+/// Multi-client root (F4 §D Tenant; ADR-002 residency).
+/// `status` is constrained by CHECK to ('active', 'inactive') in the migration.
 model Tenant {
-  id            String     @id @default(cuid())
-  code          String     @unique @db.VarChar(64)
-  name          String     @db.VarChar(200)
-  kind          TenantKind
-  /// Per-tenant data residency hint (ADR-002). Free text in F1; F2 may move
-  /// to a region enum once we have more than one storage region.
-  dataResidency String?    @map("data_residency") @db.VarChar(64)
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  status        String   @default("active")
+  residencyHint String?  @map("residency_hint")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  wells Well[]
-  jobs  Job[]
-  users User[]
+  users                  User[]
+  measurementUnits       MeasurementUnit[]
+  sensors                Sensor[]
+  transmitterDevices     TransmitterDevice[]
+  sensorTagBindings      SensorTagBinding[]
+  unitConfigurations     UnitConfiguration[]
+  unitOperatingEnvelopes UnitOperatingEnvelope[]
+  alarmRules             AlarmRule[]
+  alarmEvents            AlarmEvent[]
+  wells                  Well[]
+  jobs                   Job[]
+  commissioningSnapshots CommissioningSnapshot[]
+  telemetryReadings      TelemetryReading[]
+  integrationSources     IntegrationSource[]
+  integrationMappings    IntegrationMapping[]
+  auditLogs              AuditLog[]
 
   @@map("tenants")
 }
 
-/// User placeholder (domain-model §18). F1 holds identity + role + tenant FK.
-/// Credentials, sessions, MFA, password hashing all land in F1.5 (auth).
+/// Actor identity for audit references. Real authentication is explicitly out
+/// of scope for F4 (ADR-007 §7).
+/// `role`  CHECK in ('system','admin','engineer','operator','viewer').
+/// `status` CHECK in ('active','inactive').
 model User {
-  id          String   @id @default(cuid())
-  tenantId    String   @map("tenant_id")
-  email       String   @unique @db.VarChar(320)
-  displayName String   @map("display_name") @db.VarChar(200)
-  role        UserRole
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  displayName String   @map("display_name")
+  role        String   @default("viewer")
+  status      String   @default("active")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant                        Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unitConfigurationsCreated     UnitConfiguration[]     @relation("UnitConfigurationCreatedBy")
+  unitOperatingEnvelopesCreated UnitOperatingEnvelope[] @relation("UnitOperatingEnvelopeCreatedBy")
+  alarmRulesCreated             AlarmRule[]             @relation("AlarmRuleCreatedBy")
+  alarmEventsAcknowledged       AlarmEvent[]            @relation("AlarmEventAcknowledgedBy")
+  jobsEngineered                Job[]                   @relation("JobEngineer")
+  auditLogs                     AuditLog[]              @relation("AuditLogActor")
 
-  @@index([tenantId])
+  @@index([tenantId], map: "users_tenant_idx")
   @@map("users")
 }
 
-/// Physical well, tenant-scoped (domain-model §6). `code` is unique within a
-/// tenant (`CN-014` may exist for many tenants but not twice for one).
-model Well {
-  id           String   @id @default(cuid())
-  tenantId     String   @map("tenant_id")
-  code         String   @db.VarChar(64)
-  name         String   @db.VarChar(200)
-  siteCode     String?  @map("site_code") @db.VarChar(64)
-  wellType     String?  @map("well_type") @db.VarChar(40)
-  fluid        String?  @db.VarChar(40)
-  /// Design-limit envelope per canonical tag (telemetry-foundation §6).
-  /// Shape: `{ [canonicalTagName]: { lo_lo?, lo?, hi?, hi_hi?, u } }`.
-  designLimits Json?    @map("design_limits")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+// =============================================================================
+// B. Equipment catalog and instrumentation
+// =============================================================================
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  jobs   Job[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@map("wells")
-}
-
-/// Equipment type template (ADR-004 §7). NOT tenant-scoped: equipment is an
-/// RVF asset, available to any tenant via a job.
+/// Template for a class of equipment (EMMAD, EMGAD). Not tenant-scoped: the
+/// catalog of equipment classes is shared across the platform.
 model EquipmentType {
-  id                     String            @id @default(cuid())
-  code                   String            @unique @db.VarChar(64)
-  name                   String            @db.VarChar(200)
-  category               EquipmentCategory
-  /// Expected channel template per type (e.g. EMMAD has water-cut + cyclonic
-  /// separator loops; EMGAD does not). Free-form JSONB for F1; F2 may
-  /// normalise once the simulator needs it.
-  expectedSensorChannels Json              @map("expected_sensor_channels")
-  pidReference           String?           @map("pid_reference") @db.VarChar(200)
-  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @unique
+  description           String?
+  defaultSensorTemplate Json?    @map("default_sensor_template")
+  pidReference          String?  @map("pid_reference")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  units EquipmentUnit[]
+  measurementUnits MeasurementUnit[]
 
   @@map("equipment_types")
 }
 
-/// Concrete RVF asset (ADR-004 §7). NOT tenant-scoped. Reusable across jobs.
-/// `code` is the human ID (`EMMAD-01`); `serialNumber` is the asset tag.
-model EquipmentUnit {
-  id              String   @id @default(cuid())
-  code            String   @unique @db.VarChar(64)
-  serialNumber    String   @unique @map("serial_number") @db.VarChar(120)
-  equipmentTypeId String   @map("equipment_type_id")
-  pidReference    String?  @map("pid_reference") @db.VarChar(200)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+/// Physical, reusable unit of measurement equipment (EMMAD-01, EMMAD-02, ...).
+/// `status` CHECK in ('active','inactive','offline','maintenance').
+/// `operating_profile` CHECK in ('high_pressure_high_flow','medium','low','custom').
+/// Unique by (tenant_id, code).
+model MeasurementUnit {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  equipmentTypeId  String   @map("equipment_type_id") @db.Uuid
+  code             String
+  serialNumber     String?  @map("serial_number")
+  name             String
+  status           String   @default("active")
+  operatingProfile String   @default("custom") @map("operating_profile")
+  location         String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  equipmentType EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
-  sensors       Sensor[]
-  jobs          Job[]
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  equipmentType          EquipmentType           @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  sensors                Sensor[]
+  unitConfigurations     UnitConfiguration[]
+  unitOperatingEnvelopes UnitOperatingEnvelope[]
+  alarmRules             AlarmRule[]
+  alarmEvents            AlarmEvent[]
+  jobs                   Job[]
+  commissioningSnapshots CommissioningSnapshot[]
+  telemetryReadings      TelemetryReading[]
+  integrationMappings    IntegrationMapping[]
 
-  @@index([equipmentTypeId])
-  @@map("equipment_units")
+  @@unique([tenantId, code], map: "measurement_units_tenant_code_uk")
+  @@index([tenantId], map: "measurement_units_tenant_idx")
+  @@index([equipmentTypeId], map: "measurement_units_equipment_type_idx")
+  @@map("measurement_units")
 }
 
-/// Canonical tag dictionary (telemetry-foundation §9; ADR-003/004 §10).
-/// GLOBAL — not tenant-scoped. Governed by RVF. The meaning of an existing
-/// tag never changes (domain-model §26). New tags can be added.
+/// Logical measurement point on a measurement_unit. Persists across
+/// transmitter replacements.
+/// `type` CHECK in ('pressure','temperature','flow','vibration','volume',
+///                  'level','gas_composition','digital_status').
+model Sensor {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  unitId          String   @map("unit_id") @db.Uuid
+  type            String
+  name            String
+  instrumentTag   String   @map("instrument_tag")
+  enabled         Boolean  @default(true)
+  minRange        Decimal? @map("min_range") @db.Decimal
+  maxRange        Decimal? @map("max_range") @db.Decimal
+  engineeringUnit String   @map("engineering_unit")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit                MeasurementUnit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  transmitterDevices  TransmitterDevice[]
+  sensorTagBindings   SensorTagBinding[]
+  telemetryReadings   TelemetryReading[]
+  integrationMappings IntegrationMapping[]
+
+  @@index([tenantId], map: "sensors_tenant_idx")
+  @@index([unitId], map: "sensors_unit_idx")
+  @@map("sensors")
+}
+
+/// Physical / digital device implementing a sensor. Separate table so
+/// calibration, firmware, and replacement history are captured per device.
+/// `protocol`            CHECK in ('4-20mA','HART','Modbus','OPC-UA','wireless').
+/// `installation_status` CHECK in ('installed','removed','on_bench','replaced').
+/// Partial index on (sensor_id) WHERE installation_status='installed'
+/// is created in raw SQL in the migration.
+model TransmitterDevice {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  sensorId               String    @map("sensor_id") @db.Uuid
+  serialNumber           String    @map("serial_number")
+  manufacturer           String
+  model                  String
+  protocol               String
+  signalType             String    @map("signal_type")
+  modbusAddress          Int?      @map("modbus_address")
+  registerMapReference   String?   @map("register_map_reference")
+  channel                String?
+  firmwareVersion        String?   @map("firmware_version")
+  calibrationDate        DateTime? @map("calibration_date") @db.Date
+  calibrationRangeMin    Decimal?  @map("calibration_range_min") @db.Decimal
+  calibrationRangeMax    Decimal?  @map("calibration_range_max") @db.Decimal
+  calibrationReference   String?   @map("calibration_reference")
+  batteryStatus          String?   @map("battery_status")
+  installationStatus     String    @default("installed") @map("installation_status")
+  installedAt            DateTime? @map("installed_at") @db.Timestamptz(6)
+  removedAt              DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sensor Sensor @relation(fields: [sensorId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId], map: "transmitter_devices_tenant_idx")
+  @@index([sensorId], map: "transmitter_devices_sensor_idx")
+  @@map("transmitter_devices")
+}
+
+// =============================================================================
+// C. Canonical tag dictionary and sensor bindings (ADR-003)
+// =============================================================================
+
+/// RVF's fixed measurement vocabulary (p_inlet, t_gas_out, q_liquid, ...).
+/// Owned by RVF; globally unique; not tenant-scoped.
 model CanonicalTag {
-  id            String               @id @default(cuid())
-  /// The official identifier: `p_inlet`, `t_outlet`, `q_oil`. Lowercase
-  /// snake_case. Treated as the immutable business key — service refuses
-  /// to delete or rename a tag while any snapshot references it.
-  name          String               @unique @db.VarChar(64)
-  displayName   String               @map("display_name") @db.VarChar(200)
-  /// Canonical engineering unit (`psi`, `degC`, `bbl/d`, ...).
-  unit          String               @db.VarChar(40)
-  unitClass     EngineeringUnitClass @map("unit_class")
-  decimals      Int                  @default(2)
-  /// Expected range envelope: `{ lo: number, hi: number }`.
-  expectedRange Json?                @map("expected_range")
-  description   String?              @db.Text
-  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique
+  displayName    String   @map("display_name")
+  canonicalUnit  String   @map("canonical_unit")
+  category       String
+  precision      Int      @default(2)
+  description    String?
+  deprecated     Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sensorTagBindings   SensorTagBinding[]
+  alarmRules          AlarmRule[]
+  alarmEvents         AlarmEvent[]
+  telemetryReadings   TelemetryReading[]
+  integrationMappings IntegrationMapping[]
 
   @@map("canonical_tags")
 }
 
-/// Sensor on an equipment unit (domain-model §8). Holds the three-tag
-/// traceability chain (ADR-004): instrument tag (P&ID) → sensor → canonical
-/// tag. Live + editable — the snapshot freezes a copy per job.
-///
-/// `canonicalTagName` is a SOFT reference (no FK) to CanonicalTag.name —
-/// the service refuses to delete/rename a referenced canonical tag, but
-/// the lack of a hard FK keeps snapshot rows readable even if dictionary
-/// integrity is ever lost. Defense in depth.
-model Sensor {
-  id               String     @id @default(cuid())
-  equipmentUnitId  String     @map("equipment_unit_id")
-  /// P&ID instrument tag (`PIT-003`).
-  instrumentTag    String     @map("instrument_tag") @db.VarChar(64)
-  sensorType       SensorType @map("sensor_type")
-  /// Modbus register address on the Gateway Stick (ADR-001).
-  modbusRegister   Int        @map("modbus_register")
-  /// Soft reference (by name) to CanonicalTag.name.
-  canonicalTagName String     @map("canonical_tag_name") @db.VarChar(64)
-  rangeLow         Float?     @map("range_low")
-  rangeHigh        Float?     @map("range_high")
-  /// SignalFire / instrument serial (`PS-118`, `RT-094`).
-  serialNumber     String?    @map("serial_number") @db.VarChar(120)
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+/// Effective-dated mapping from sensor to canonical tag (ADR-003). At most one
+/// row per sensor is currently active (effective_to IS NULL). The partial
+/// unique index enforcing that invariant is created in raw SQL.
+model SensorTagBinding {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  sensorId       String    @map("sensor_id") @db.Uuid
+  canonicalTagId String    @map("canonical_tag_id") @db.Uuid
+  effectiveFrom  DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveTo    DateTime? @map("effective_to") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  equipmentUnit    EquipmentUnit     @relation(fields: [equipmentUnitId], references: [id], onDelete: Cascade)
-  signalFireDevice SignalFireDevice?
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sensor       Sensor       @relation(fields: [sensorId], references: [id], onDelete: Restrict)
+  canonicalTag CanonicalTag @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
 
-  @@unique([equipmentUnitId, instrumentTag])
-  @@index([equipmentUnitId])
-  @@index([canonicalTagName])
-  @@map("sensors")
-}
-
-/// The SignalFire radio device that carries a sensor's signal to the
-/// Gateway Stick (ADR-001; domain-model §9). Placeholder this F1 — identity
-/// + gateway link only. Live health (battery, RF, hops) is telemetry and
-/// lands in F2 as a hypertable.
-model SignalFireDevice {
-  id           String   @id @default(cuid())
-  sensorId     String   @unique @map("sensor_id")
-  deviceId     String   @unique @map("device_id") @db.VarChar(120)
-  gatewayId    String   @map("gateway_id") @db.VarChar(120)
-  radioProfile String?  @map("radio_profile") @db.VarChar(40)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  sensor Sensor @relation(fields: [sensorId], references: [id], onDelete: Cascade)
-
-  @@map("signalfire_devices")
+  @@index([tenantId], map: "sensor_tag_bindings_tenant_idx")
+  @@index([sensorId], map: "sensor_tag_bindings_sensor_idx")
+  @@index([canonicalTagId], map: "sensor_tag_bindings_canonical_tag_idx")
+  @@index([effectiveFrom, effectiveTo], map: "sensor_tag_bindings_effective_idx")
+  @@map("sensor_tag_bindings")
 }
 
 // =============================================================================
-// OPERATION — events that occur and end; immutable once closed/frozen.
+// D. Per-unit operational configuration (F4 §E)
 // =============================================================================
 
-/// The spine of the model (domain-model §11). One tenant + one well + one
-/// equipment unit + a period. Telemetry, alarms and events all hang off
-/// `job_id`. Mutable while open; service refuses writes once `closed`.
-model Job {
-  id              String    @id @default(cuid())
-  /// `JOB-YYYY-NNNN`. Stable across the asset's lifetime.
-  code            String    @unique @db.VarChar(64)
-  tenantId        String    @map("tenant_id")
-  wellId          String    @map("well_id")
-  equipmentUnitId String    @map("equipment_unit_id")
-  startedAt       DateTime  @map("started_at") @db.Timestamptz(6)
-  endedAt         DateTime? @map("ended_at") @db.Timestamptz(6)
-  status          JobStatus @default(scheduled)
-  /// Set when the job moves to `closed`. Service refuses any mutation once set.
-  closedAt        DateTime? @map("closed_at") @db.Timestamptz(6)
-  engineerUserId  String?   @map("engineer_user_id")
-  notes           String?   @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+/// Versioned per-unit operational configuration. Only one row per unit may
+/// have is_current = TRUE (enforced by a partial unique index in raw SQL).
+model UnitConfiguration {
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String   @map("tenant_id") @db.Uuid
+  unitId                    String   @map("unit_id") @db.Uuid
+  version                   Int
+  configuration             Json?
+  enabledSensors            Json?    @map("enabled_sensors")
+  engineeringUnitOverrides  Json?    @map("engineering_unit_overrides")
+  displayPrecisionOverrides Json?    @map("display_precision_overrides")
+  isCurrent                 Boolean  @default(false) @map("is_current")
+  createdBy                 String?  @map("created_by") @db.Uuid
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant            Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  well              Well                   @relation(fields: [wellId], references: [id], onDelete: Restrict)
-  equipmentUnit     EquipmentUnit          @relation(fields: [equipmentUnitId], references: [id], onDelete: Restrict)
-  snapshot          CommissioningSnapshot?
-  alarmRules        AlarmRule[]
-  operationalEvents OperationalEvent[]
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit    MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  creator User?           @relation("UnitConfigurationCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
 
-  @@index([tenantId])
-  @@index([wellId])
-  @@index([equipmentUnitId])
-  @@index([status])
-  @@map("jobs")
+  @@unique([unitId, version], map: "unit_configurations_unit_version_uk")
+  @@index([tenantId], map: "unit_configurations_tenant_idx")
+  @@index([unitId], map: "unit_configurations_unit_idx")
+  @@map("unit_configurations")
 }
 
-/// The frozen photograph of the equipment configuration at job start
-/// (ADR-003/004; domain-model §12). One per job. IMMUTABLE: the service
-/// refuses any update once `frozenAt` is set. F1.5 will harden this with
-/// a Postgres trigger; F1 enforces at the service boundary only.
-model CommissioningSnapshot {
-  id               String   @id @default(cuid())
-  jobId            String   @unique @map("job_id")
-  frozenAt         DateTime @map("frozen_at") @db.Timestamptz(6)
-  commissionedById String?  @map("commissioned_by_id")
-  notes            String?  @db.Text
+/// Per-unit operating limits (F4 §D, §E). HP units and LP units carry
+/// different envelopes; there is no global envelope by design. Only one row
+/// per unit may have is_current = TRUE (partial unique index in raw SQL).
+model UnitOperatingEnvelope {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                String   @map("tenant_id") @db.Uuid
+  unitId                  String   @map("unit_id") @db.Uuid
+  version                 Int
+  maxPressure             Decimal? @map("max_pressure") @db.Decimal
+  maxFlowRate             Decimal? @map("max_flow_rate") @db.Decimal
+  maxTemperature          Decimal? @map("max_temperature") @db.Decimal
+  maxVibration            Decimal? @map("max_vibration") @db.Decimal
+  maxDifferentialPressure Decimal? @map("max_differential_pressure") @db.Decimal
+  maxVolume               Decimal? @map("max_volume") @db.Decimal
+  maxGasRate              Decimal? @map("max_gas_rate") @db.Decimal
+  engineeringUnitSet      Json?    @map("engineering_unit_set")
+  isCurrent               Boolean  @default(false) @map("is_current")
+  createdBy               String?  @map("created_by") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  job             Job                 @relation(fields: [jobId], references: [id], onDelete: Restrict)
-  sensorSnapshots JobSensorSnapshot[]
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit    MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  creator User?           @relation("UnitOperatingEnvelopeCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
 
-  @@map("commissioning_snapshots")
+  @@unique([unitId, version], map: "unit_operating_envelopes_unit_version_uk")
+  @@index([tenantId], map: "unit_operating_envelopes_tenant_idx")
+  @@index([unitId], map: "unit_operating_envelopes_unit_idx")
+  @@map("unit_operating_envelopes")
 }
 
-/// One row per sensor present at commissioning. The literal frozen copy of
-/// the sensor catalog at that moment. Stores `canonicalTagName` as a string,
-/// NOT an FK — historical interpretation survives any future dictionary edit.
-/// IMMUTABLE alongside its parent snapshot.
-model JobSensorSnapshot {
-  id                 String               @id @default(cuid())
-  snapshotId         String               @map("snapshot_id")
-  instrumentTag      String               @map("instrument_tag") @db.VarChar(64)
-  sensorType         SensorType           @map("sensor_type")
-  modbusRegister     Int                  @map("modbus_register")
-  /// Frozen string copy of the canonical tag name.
-  canonicalTagName   String               @map("canonical_tag_name") @db.VarChar(64)
-  unit               String               @db.VarChar(40)
-  unitClass          EngineeringUnitClass @map("unit_class")
-  rangeLow           Float?               @map("range_low")
-  rangeHigh          Float?               @map("range_high")
-  sensorSerialNumber String?              @map("sensor_serial_number") @db.VarChar(120)
-  /// Per-tag alarm envelope captured at commissioning: `{lo_lo?, lo?, hi?, hi_hi?}`.
-  alarmLimits        Json?                @map("alarm_limits")
+// =============================================================================
+// E. Alarm model (ADR-005, F4 §G)
+// =============================================================================
 
-  snapshot CommissioningSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
-
-  @@index([snapshotId])
-  @@index([canonicalTagName])
-  @@map("job_sensor_snapshots")
-}
-
-/// Alarm rule (placeholder this F1). One rule per (job or well) + canonical
-/// tag + condition. Per ADR-001/004 alarms are informative, not safety-
-/// instrumented. Limits used at runtime come from the job's snapshot, not
-/// from the live catalog (domain-model §15).
+/// Per-unit, per-canonical-tag alarm rule (ADR-005). Versioned; only one row
+/// per (unit, canonical_tag, severity) may be current at a time (partial
+/// unique index in raw SQL).
+/// `severity` CHECK in ('info','warning','critical').
 model AlarmRule {
-  id               String         @id @default(cuid())
-  jobId            String?        @map("job_id")
-  wellId           String?        @map("well_id")
-  canonicalTagName String         @map("canonical_tag_name") @db.VarChar(64)
-  condition        AlarmCondition
-  threshold        Float
-  severity         AlarmSeverity
-  enabled          Boolean        @default(true)
-  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  unitId               String   @map("unit_id") @db.Uuid
+  canonicalTagId       String   @map("canonical_tag_id") @db.Uuid
+  severity             String
+  enabled              Boolean  @default(true)
+  lowLowThreshold      Decimal? @map("low_low_threshold") @db.Decimal
+  lowThreshold         Decimal? @map("low_threshold") @db.Decimal
+  highThreshold        Decimal? @map("high_threshold") @db.Decimal
+  highHighThreshold    Decimal? @map("high_high_threshold") @db.Decimal
+  deadband             Decimal? @db.Decimal
+  delaySeconds         Int?     @map("delay_seconds")
+  messageTemplate      String?  @map("message_template")
+  version              Int
+  isCurrent            Boolean  @default(false) @map("is_current")
+  createdBy            String?  @map("created_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  job Job? @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit         MeasurementUnit  @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  canonicalTag CanonicalTag     @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
+  creator      User?            @relation("AlarmRuleCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  thresholds   AlarmThreshold[]
+  events       AlarmEvent[]
 
-  @@index([jobId])
-  @@index([wellId])
-  @@index([canonicalTagName])
+  @@unique([unitId, canonicalTagId, severity, version], map: "alarm_rules_unit_tag_severity_version_uk")
+  @@index([tenantId], map: "alarm_rules_tenant_idx")
+  @@index([unitId], map: "alarm_rules_unit_idx")
+  @@index([canonicalTagId], map: "alarm_rules_canonical_tag_idx")
   @@map("alarm_rules")
 }
 
-/// Append-only timeline event (domain-model §17). F1 placeholder; F3 enriches.
-model OperationalEvent {
-  id        String               @id @default(cuid())
-  jobId     String               @map("job_id")
-  kind      OperationalEventKind
-  at        DateTime             @db.Timestamptz(6)
-  payload   Json?
-  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+/// Placeholder for complex / multi-step thresholds (F4 §G). Not required to be
+/// populated in F4.2; reserved for future use.
+/// `kind` CHECK in ('low_low','low','high','high_high','rate_of_change').
+model AlarmThreshold {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alarmRuleId   String   @map("alarm_rule_id") @db.Uuid
+  kind          String
+  value         Decimal  @db.Decimal
+  deadband      Decimal? @db.Decimal
+  delaySeconds  Int?     @map("delay_seconds")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  job Job @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  alarmRule AlarmRule @relation(fields: [alarmRuleId], references: [id], onDelete: Cascade)
 
-  @@index([jobId, at])
-  @@map("operational_events")
+  @@index([alarmRuleId], map: "alarm_thresholds_rule_idx")
+  @@map("alarm_thresholds")
+}
+
+/// Persistent alarm occurrences. Lifecycle: active -> acknowledged -> cleared.
+/// Partial index for the "active" board is created in raw SQL.
+/// `severity`           CHECK in ('info','warning','critical').
+/// `state`              CHECK in ('active','acknowledged','cleared').
+/// `threshold_violated` CHECK in ('low_low','low','high','high_high','rate_of_change').
+model AlarmEvent {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  unitId             String    @map("unit_id") @db.Uuid
+  canonicalTagId     String    @map("canonical_tag_id") @db.Uuid
+  alarmRuleId        String?   @map("alarm_rule_id") @db.Uuid
+  severity           String
+  triggeredValue     Decimal   @map("triggered_value") @db.Decimal
+  thresholdViolated  String    @map("threshold_violated")
+  state              String    @default("active")
+  firstTriggeredAt   DateTime  @map("first_triggered_at") @db.Timestamptz(6)
+  acknowledgedAt     DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  acknowledgedBy     String?   @map("acknowledged_by") @db.Uuid
+  clearedAt          DateTime? @map("cleared_at") @db.Timestamptz(6)
+  jobId              String?   @map("job_id") @db.Uuid
+  ruleSnapshot       Json      @map("rule_snapshot")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit           MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  canonicalTag   CanonicalTag    @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
+  alarmRule      AlarmRule?      @relation(fields: [alarmRuleId], references: [id], onDelete: SetNull)
+  acknowledgedByUser User?       @relation("AlarmEventAcknowledgedBy", fields: [acknowledgedBy], references: [id], onDelete: SetNull)
+  job            Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId], map: "alarm_events_tenant_idx")
+  @@index([unitId, firstTriggeredAt(sort: Desc)], map: "alarm_events_unit_time_idx")
+  @@index([canonicalTagId], map: "alarm_events_canonical_tag_idx")
+  @@index([jobId], map: "alarm_events_job_idx")
+  @@map("alarm_events")
 }
 
 // =============================================================================
-// AUDIT — append-only, immutable (domain-model §19). Placeholder this F1.
+// F. Wells and jobs (catalog + operation)
 // =============================================================================
 
-/// Who did what, when, on which entity. Polymorphic by (entityKind, entityId).
-/// `tenantId` is optional for system-level events. F1.5+ writes here from
-/// every state-changing service operation.
+/// Operational subject being tested (Modelo de Dominio). client_id is
+/// reserved for future use when client identity is separated from tenant.
+model Well {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  clientId      String?  @map("client_id") @db.Uuid
+  name          String
+  fieldOrSite   String?  @map("field_or_site")
+  location      String?
+  type          String?
+  fluid         String?
+  designLimits  Json?    @map("design_limits")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  jobs   Job[]
+
+  @@index([tenantId], map: "wells_tenant_idx")
+  @@map("wells")
+}
+
+/// Deployment of a measurement_unit at a well for a period.
+/// `status` CHECK in ('programmed','in_progress','closed').
+/// commissioning_snapshot_id FK breaks a circular dependency: the FK is
+/// declared here and validated against commissioning_snapshots, which itself
+/// references jobs(id). Prisma migrate sequences the SQL correctly.
+model Job {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String    @map("tenant_id") @db.Uuid
+  wellId                    String    @map("well_id") @db.Uuid
+  unitId                    String    @map("unit_id") @db.Uuid
+  commissioningSnapshotId   String?   @map("commissioning_snapshot_id") @db.Uuid
+  engineerId                String?   @map("engineer_id") @db.Uuid
+  status                    String    @default("programmed")
+  startedAt                 DateTime? @map("started_at") @db.Timestamptz(6)
+  closedAt                  DateTime? @map("closed_at") @db.Timestamptz(6)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant                   Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  well                     Well                    @relation(fields: [wellId], references: [id], onDelete: Restrict)
+  unit                     MeasurementUnit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  commissioningSnapshot    CommissioningSnapshot?  @relation("JobCurrentSnapshot", fields: [commissioningSnapshotId], references: [id], onDelete: SetNull)
+  engineer                 User?                   @relation("JobEngineer", fields: [engineerId], references: [id], onDelete: SetNull)
+  alarmEvents              AlarmEvent[]
+  telemetryReadings        TelemetryReading[]
+  commissioningSnapshots   CommissioningSnapshot[] @relation("CommissioningSnapshotJob")
+
+  @@index([tenantId], map: "jobs_tenant_idx")
+  @@index([wellId], map: "jobs_well_idx")
+  @@index([unitId], map: "jobs_unit_idx")
+  @@index([commissioningSnapshotId], map: "jobs_commissioning_snapshot_idx")
+  @@map("jobs")
+}
+
+/// Immutable, frozen configuration at commissioning (ADR-005). SQL alone
+/// cannot fully enforce immutability without triggers or REVOKE; the
+/// `immutable` flag + CHECK constraint document the contract, and a future
+/// hardening pass will add trigger / GRANT enforcement.
+model CommissioningSnapshot {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  jobId                 String   @map("job_id") @db.Uuid
+  unitId                String   @map("unit_id") @db.Uuid
+  takenAt               DateTime @default(now()) @map("taken_at") @db.Timestamptz(6)
+  effectiveThresholds   Json     @map("effective_thresholds")
+  sensorMappings        Json     @map("sensor_mappings")
+  engineeringEnvelope   Json     @map("engineering_envelope")
+  ruleVersions          Json     @map("rule_versions")
+  immutable             Boolean  @default(true)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  job        Job             @relation("CommissioningSnapshotJob", fields: [jobId], references: [id], onDelete: Restrict)
+  unit       MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  currentFor Job[]           @relation("JobCurrentSnapshot")
+
+  @@index([tenantId], map: "commissioning_snapshots_tenant_idx")
+  @@index([jobId], map: "commissioning_snapshots_job_idx")
+  @@index([unitId], map: "commissioning_snapshots_unit_idx")
+  @@map("commissioning_snapshots")
+}
+
+// =============================================================================
+// G. Telemetry readings (canonical, append-only)
+// =============================================================================
+
+/// Canonical persisted telemetry. Plain PostgreSQL table; convertible to a
+/// TimescaleDB hypertable later without redesign. Append-only by architecture;
+/// SQL-level UPDATE/DELETE restrictions are a later concern.
+/// `quality` CHECK in ('good','uncertain','bad').
+/// `source`  CHECK in ('mock','manual','field_gateway','historian','plc',
+///                     'mqtt','node_red','opc_ua','modbus','edge_gateway').
+/// Partial index on (job_id, timestamp DESC) WHERE job_id IS NOT NULL is
+/// created in raw SQL.
+model TelemetryReading {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  unitId          String   @map("unit_id") @db.Uuid
+  sensorId        String   @map("sensor_id") @db.Uuid
+  canonicalTagId  String   @map("canonical_tag_id") @db.Uuid
+  timestamp       DateTime @db.Timestamptz(6)
+  value           Decimal  @db.Decimal
+  engineeringUnit String   @map("engineering_unit")
+  quality         String
+  source          String
+  ingestionId     String?  @map("ingestion_id")
+  sequence        BigInt?
+  jobId           String?  @map("job_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit         MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  sensor       Sensor          @relation(fields: [sensorId], references: [id], onDelete: Restrict)
+  canonicalTag CanonicalTag    @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
+  job          Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([unitId, canonicalTagId, timestamp(sort: Desc)], map: "telemetry_readings_unit_tag_time_idx")
+  @@index([tenantId, timestamp(sort: Desc)], map: "telemetry_readings_tenant_time_idx")
+  @@index([sensorId, timestamp(sort: Desc)], map: "telemetry_readings_sensor_time_idx")
+  @@map("telemetry_readings")
+}
+
+// NOTE: live_readings_projection is a DERIVED SQL view defined in the
+// migration. It is intentionally NOT modeled in Prisma — consumers read it
+// via $queryRaw. F4.6 picks the final implementation (view, materialized
+// view, upsert-maintained projection table, or application cache).
+
+// =============================================================================
+// H. Integration metadata (placeholders, F4 §I)
+// =============================================================================
+
+/// Future inbound integration channel. credentials_reference points at an
+/// external secret store; secrets are never stored inline.
+/// `kind`   CHECK in ('mqtt','node_red','thingsboard','opc_ua','modbus',
+///                    'edge_gateway','plc','manual','historian').
+/// `status` CHECK in ('active','inactive').
+model IntegrationSource {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  kind                  String
+  name                  String
+  status                String   @default("inactive")
+  config                Json     @default("{}")
+  credentialsReference  String?  @map("credentials_reference")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  mappings IntegrationMapping[]
+
+  @@index([tenantId], map: "integration_sources_tenant_idx")
+  @@map("integration_sources")
+}
+
+/// Translation from external identifier to canonical (unit, sensor,
+/// canonical_tag) triple. external_identifier is unique per integration_source.
+model IntegrationMapping {
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String   @map("tenant_id") @db.Uuid
+  integrationSourceId       String   @map("integration_source_id") @db.Uuid
+  externalIdentifier        String   @map("external_identifier")
+  unitId                    String   @map("unit_id") @db.Uuid
+  sensorId                  String?  @map("sensor_id") @db.Uuid
+  canonicalTagId            String?  @map("canonical_tag_id") @db.Uuid
+  engineeringUnitOverride   String?  @map("engineering_unit_override")
+  transformationReference   String?  @map("transformation_reference")
+  enabled                   Boolean  @default(false)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  integrationSource IntegrationSource @relation(fields: [integrationSourceId], references: [id], onDelete: Restrict)
+  unit              MeasurementUnit   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  sensor            Sensor?           @relation(fields: [sensorId], references: [id], onDelete: SetNull)
+  canonicalTag      CanonicalTag?     @relation(fields: [canonicalTagId], references: [id], onDelete: SetNull)
+
+  @@unique([integrationSourceId, externalIdentifier], map: "integration_mappings_source_external_uk")
+  @@index([tenantId], map: "integration_mappings_tenant_idx")
+  @@index([integrationSourceId], map: "integration_mappings_source_idx")
+  @@index([unitId], map: "integration_mappings_unit_idx")
+  @@index([sensorId], map: "integration_mappings_sensor_idx")
+  @@index([canonicalTagId], map: "integration_mappings_canonical_tag_idx")
+  @@map("integration_mappings")
+}
+
+// =============================================================================
+// I. Audit log (append-only, central)
+// =============================================================================
+
+/// Single append-only audit table (F4 §H). Same enforcement note as
+/// commissioning_snapshots and telemetry_readings — append-only is documented
+/// by architecture and CHECK constraints; trigger / GRANT hardening is a
+/// later concern.
+/// `action` CHECK in ('created','updated','deleted','acknowledged','cleared',
+///                    'calibrated','replaced','commissioned','closed').
 model AuditLog {
-  id          String   @id @default(cuid())
-  at          DateTime @default(now()) @db.Timestamptz(6)
-  tenantId    String?  @map("tenant_id")
-  actorUserId String?  @map("actor_user_id")
-  action      String   @db.VarChar(120)
-  entityKind  String   @map("entity_kind") @db.VarChar(64)
-  entityId    String   @map("entity_id") @db.VarChar(64)
-  beforeJson  Json?    @map("before_json")
-  afterJson   Json?    @map("after_json")
-  ipAddress   String?  @map("ip_address") @db.VarChar(64)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  actorId       String?  @map("actor_id") @db.Uuid
+  action        String
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id") @db.Uuid
+  before        Json?
+  after         Json?
+  correlationId String?  @map("correlation_id") @db.Uuid
+  ipAddress     String?  @map("ip_address") @db.Inet
+  userAgent     String?  @map("user_agent")
+  at            DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([tenantId, at])
-  @@index([entityKind, entityId])
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actor  User?  @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, at(sort: Desc)], map: "audit_logs_tenant_at_idx")
+  @@index([entityType, entityId], map: "audit_logs_entity_idx")
+  @@index([actorId], map: "audit_logs_actor_idx")
+  @@index([correlationId], map: "audit_logs_correlation_idx")
   @@map("audit_logs")
-}
-
-// =============================================================================
-// TELEMETRY — append-only, high-volume hypertables (F1.5).
-// =============================================================================
-// Storage discipline (per the additional guidance attached to F1.5):
-//   - Rows preserve the value EXACTLY as received, with the unit it arrived
-//     in. Engineering-unit conversion to the canonical tag's unit happens at
-//     the QUERY layer, never at ingest. No smoothing, filtering,
-//     interpolation, or resampling at ingest.
-//   - Out-of-order timestamps are tolerated; the idempotency key is
-//     (unit_id, seq, canonical_tag_name), not (ts, ...).
-//   - Storage is transport-agnostic: any future adapter (MQTT, REST bridge,
-//     ThingsBoard export, Node-RED, edge direct) normalises into the same
-//     row shape before writing.
-//
-// Timescale specifics (hypertable conversion, indexes, compression policy,
-// retention policy, continuous aggregates) live in the migration's raw SQL —
-// Prisma does not model them. The Prisma model gives us typed CRUD; the
-// hypertable behaviour is layered on after CREATE TABLE.
-
-/// One measurement. Long-format (one row per (ts, job, tag)). Hypertable
-/// chunks every 1 day; indexed for trend slicing by (job, tag, ts DESC).
-model Telemetry {
-  /// Edge-measured timestamp in UTC (telemetry-foundation §4). Never the
-  /// cloud arrival time.
-  ts                  DateTime @db.Timestamptz(6)
-  /// Soft FK to Job.id — no Prisma @relation because hypertables don't
-  /// support FK constraints cleanly. The service layer always joins through
-  /// Job for tenant scoping + interpretation.
-  jobId               String   @map("job_id")
-  canonicalTagName    String   @map("canonical_tag_name") @db.VarChar(64)
-  /// Raw value as received. NOT converted at write time.
-  value               Float
-  /// Engineering unit AS RECEIVED. May or may not equal the canonical unit.
-  /// The trend query layer converts to canonical at read time.
-  valueUnit           String   @map("value_unit") @db.VarChar(40)
-  quality             Quality
-  /// Per-message sequence number from the edge (telemetry-foundation §4).
-  /// Combined with unit_id + canonical_tag_name it is the idempotency key.
-  seq                 BigInt
-  unitId              String   @map("unit_id") @db.VarChar(64)
-  sensorInstrumentTag String   @map("sensor_instrument_tag") @db.VarChar(64)
-  /// Cloud arrival time. Used to detect late delivery + audit lag.
-  receivedAt          DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
-  /// Audit trail of which adapter wrote this row (e.g., `mqtt`,
-  /// `rest-bridge`, `thingsboard-export`, `edge-direct`, `simulator`).
-  sourceAdapter       String?  @map("source_adapter") @db.VarChar(40)
-
-  /// Composite PK — ts MUST lead so the column can partition the hypertable.
-  @@id([ts, jobId, canonicalTagName])
-  /// Idempotency lookup: a replayed packet with the same (unit, seq, tag)
-  /// triple is dropped at the adapter layer via a pre-INSERT existence check.
-  /// Timescale rejects UNIQUE indexes that don't include the partitioning
-  /// column, so the dedup constraint lives in the application layer and this
-  /// index just makes the lookup fast.
-  @@index([unitId, seq, canonicalTagName])
-  @@index([jobId, canonicalTagName, ts(sort: Desc)])
-  @@map("telemetry")
-}
-
-/// Device-liveness time series (domain-model §16). Separate hypertable so
-/// "battery dead" never gets mistaken for "process change". Same out-of-order
-/// + idempotency rules as Telemetry.
-model SensorHealth {
-  ts                  DateTime     @db.Timestamptz(6)
-  jobId               String       @map("job_id")
-  unitId              String       @map("unit_id") @db.VarChar(64)
-  sensorInstrumentTag String       @map("sensor_instrument_tag") @db.VarChar(64)
-  status              HealthStatus
-  batteryPct          Float?       @map("battery_pct")
-  rssiDbm             Float?       @map("rssi_dbm")
-  meshHops            Int?         @map("mesh_hops")
-  lastReadingAgeS     Int?         @map("last_reading_age_s")
-  receivedAt          DateTime     @default(now()) @map("received_at") @db.Timestamptz(6)
-  sourceAdapter       String?      @map("source_adapter") @db.VarChar(40)
-  seq                 BigInt
-
-  @@id([ts, jobId, sensorInstrumentTag])
-  /// Same Timescale UNIQUE-with-partitioning-column constraint as Telemetry —
-  /// idempotency enforced at the adapter layer.
-  @@index([unitId, seq, sensorInstrumentTag])
-  @@index([jobId, sensorInstrumentTag, ts(sort: Desc)])
-  @@map("sensor_health")
-}
-
-/// Late-arriving / rejected telemetry. Industrial data is never silently
-/// dropped — anything that fails to land in the hypertable is preserved here
-/// for audit and (eventually) replay. Regular table (not a hypertable);
-/// low-volume by design.
-model LateTelemetryQuarantine {
-  id                  String              @id @default(cuid())
-  reason              LateTelemetryReason
-  /// Original envelope as received, verbatim. JSONB so the auditor can see
-  /// exactly what the adapter sent — no normalisation, no field stripping.
-  envelope            Json
-  sourceAdapter       String?             @map("source_adapter") @db.VarChar(40)
-  /// Original edge timestamp if parseable; null if the envelope was malformed
-  /// enough that we couldn't even read a timestamp.
-  originalTs          DateTime?           @map("original_ts") @db.Timestamptz(6)
-  receivedAt          DateTime            @default(now()) @map("received_at") @db.Timestamptz(6)
-  /// Optional structured fields when we could parse them out of the envelope.
-  jobId               String?             @map("job_id")
-  unitId              String?             @map("unit_id") @db.VarChar(64)
-  sensorInstrumentTag String?             @map("sensor_instrument_tag") @db.VarChar(64)
-  notes               String?             @db.Text
-
-  @@index([reason, receivedAt])
-  @@index([jobId, receivedAt])
-  @@map("late_telemetry_quarantine")
-}
-
-// =============================================================================
-// F0 marker — preserved so the schema-phase row continues to exist.
-// =============================================================================
-
-model RvfMeta {
-  key       String   @id
-  value     String
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  @@map("_rvf_meta")
 }
