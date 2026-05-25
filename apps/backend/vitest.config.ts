@@ -10,14 +10,7 @@ export default defineConfig({
     // reference during the F4.4 rewrite but skipped here so `pnpm test` runs
     // green on the F4.2 baseline. See
     // docs/architecture/RVF_Malinois_F4_2B_Insulation_Strategy_Confirmation.md.
-    exclude: [
-      'node_modules/**',
-      'dist/**',
-      'src/tags/**',
-      'src/equipment/**',
-      'src/jobs/**',
-      'src/telemetry/**',
-    ],
+    exclude: ['node_modules/**', 'dist/**', 'src/equipment/**', 'src/jobs/**', 'src/telemetry/**'],
     // The backend suite shares one PostgreSQL instance with the dev
     // environment. Running files serially keeps shared fixtures consistent
     // without per-test database isolation overhead.
