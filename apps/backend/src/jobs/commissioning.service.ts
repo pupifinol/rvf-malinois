@@ -1,167 +1,56 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  type CommissioningSnapshot,
-  type Job,
-  type JobSensorSnapshot,
-  JobStatus,
-  type Prisma,
-} from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
 
-export interface CreateJobWithSnapshotInput {
-  code: string;
-  tenantId: string;
-  wellId: string;
-  equipmentUnitId: string;
-  startedAt: Date;
-  notes?: string;
-  /** Optional per-canonical-tag alarm envelope overlay; merged onto the sensor snapshot rows. */
-  alarmLimits?: Record<string, { lo_lo?: number; lo?: number; hi?: number; hi_hi?: number }>;
-  /** User id (caller). F1 has no auth; F1.5 fills this in. */
-  commissionedById?: string;
-}
-
 /**
- * CommissioningService — owns the "freeze the photo" workflow (ADR-003/004).
+ * CommissioningService — read-only helper over `commissioning_snapshots`.
  *
- * The two operations on this service are the immutability seams F1.4 tests
- * exercise:
+ * F4 models the snapshot as the immutable per-job freeze of effective
+ * thresholds, sensor mappings, engineering envelope, and rule versions
+ * (ADR-005, F4 §F). The F1 implementation owned the entire "freeze the
+ * photo" write workflow: it created `Job + CommissioningSnapshot +
+ * JobSensorSnapshot[]` rows atomically, populated the `unit`/`unitClass`
+ * scalars on each sensor row, and ran service-layer immutability guards
+ * (`assertSnapshotMutable`, `assertJobMutable`).
  *
- *   1. createJobWithSnapshot — atomically creates a Job + CommissioningSnapshot
- *      + one JobSensorSnapshot row per sensor on the chosen EquipmentUnit, all
- *      in a single Prisma transaction. A Job CANNOT exist without its snapshot.
+ * F4 collapsed `JobSensorSnapshot` into JSONB inside
+ * `commissioning_snapshots.sensor_mappings`, and enforces immutability via
+ * the `immutable = TRUE` CHECK constraint plus a future trigger / GRANT
+ * hardening pass. F4.4E therefore retires the F1 write surface and keeps
+ * this service alive only as a read-only helper — same posture as
+ * F4.4A → F4.4D for their respective domains. Write flows (commission a
+ * job, deprecate / replace a snapshot) will be reintroduced in a later
+ * phase behind a guarded service that writes an `audit_logs` row on every
+ * mutation.
  *
- *   2. assertSnapshotMutable / assertJobMutable — service-layer guards.
- *      Refuse the write if the snapshot is frozen or the job is closed.
- *      F1.5 will harden these with Postgres triggers.
+ * The reduced surface is intentionally small (two methods) and is consumed
+ * only by `JobsService.findById` indirectly through Prisma's
+ * `include: { commissioningSnapshot: true }`. No new routes are wired in
+ * F4.4E; F4.5 may surface a `/api/v1/jobs/:jobId/snapshot` endpoint when
+ * the UI starts consuming the commissioning data.
  */
 @Injectable()
 export class CommissioningService {
-  private readonly logger = new Logger(CommissioningService.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
-  // ---------------------------------------------------------------------------
-  // Create — same-transaction job + snapshot + sensor snapshots
-  // ---------------------------------------------------------------------------
-
-  async createJobWithSnapshot(input: CreateJobWithSnapshotInput): Promise<{
-    job: Job;
-    snapshot: CommissioningSnapshot;
-    sensorSnapshots: JobSensorSnapshot[];
-  }> {
-    const unit = await this.prisma.equipmentUnit.findUnique({
-      where: { id: input.equipmentUnitId },
-      include: { sensors: { orderBy: { instrumentTag: 'asc' } } },
-    });
-    if (!unit) {
-      throw new NotFoundException(`Equipment unit ${input.equipmentUnitId} not found.`);
+  /** Returns the immutable commissioning snapshot identified by UUID, or 404. */
+  async findById(id: string) {
+    const snapshot = await this.prisma.commissioningSnapshot.findUnique({ where: { id } });
+    if (!snapshot) {
+      throw new NotFoundException(`Commissioning snapshot '${id}' not found.`);
     }
-    if (unit.sensors.length === 0) {
-      throw new ConflictException(
-        `Equipment unit ${unit.code} has no sensors — cannot commission an empty unit.`,
-      );
-    }
-
-    const canonicalTags = await this.prisma.canonicalTag.findMany({
-      where: { name: { in: unit.sensors.map((s) => s.canonicalTagName) } },
-    });
-    const tagByName = new Map(canonicalTags.map((t) => [t.name, t]));
-
-    for (const s of unit.sensors) {
-      if (!tagByName.has(s.canonicalTagName)) {
-        throw new ConflictException(
-          `Sensor ${s.instrumentTag} references unknown canonical tag '${s.canonicalTagName}'.`,
-        );
-      }
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const job = await tx.job.create({
-        data: {
-          code: input.code,
-          tenantId: input.tenantId,
-          wellId: input.wellId,
-          equipmentUnitId: input.equipmentUnitId,
-          startedAt: input.startedAt,
-          status: JobStatus.in_progress,
-          notes: input.notes,
-        },
-      });
-
-      const snapshot = await tx.commissioningSnapshot.create({
-        data: {
-          jobId: job.id,
-          frozenAt: new Date(),
-          commissionedById: input.commissionedById,
-        },
-      });
-
-      const sensorSnapshots: JobSensorSnapshot[] = [];
-      for (const sensor of unit.sensors) {
-        const tag = tagByName.get(sensor.canonicalTagName);
-        if (!tag) {
-          // Pre-check above already guaranteed this; keep the guard for
-          // defence-in-depth and to keep TypeScript narrowing happy.
-          throw new ConflictException(
-            `Sensor ${sensor.instrumentTag} references unknown canonical tag '${sensor.canonicalTagName}'.`,
-          );
-        }
-        const row = await tx.jobSensorSnapshot.create({
-          data: {
-            snapshotId: snapshot.id,
-            instrumentTag: sensor.instrumentTag,
-            sensorType: sensor.sensorType,
-            modbusRegister: sensor.modbusRegister,
-            canonicalTagName: sensor.canonicalTagName,
-            unit: tag.unit,
-            unitClass: tag.unitClass,
-            rangeLow: sensor.rangeLow,
-            rangeHigh: sensor.rangeHigh,
-            sensorSerialNumber: sensor.serialNumber,
-            alarmLimits: input.alarmLimits?.[sensor.canonicalTagName] as Prisma.InputJsonValue,
-          },
-        });
-        sensorSnapshots.push(row);
-      }
-
-      this.logger.log(
-        `Commissioned job ${job.code} (${sensorSnapshots.length} sensor snapshots frozen).`,
-      );
-
-      return { job, snapshot, sensorSnapshots };
-    });
+    return snapshot;
   }
 
-  // ---------------------------------------------------------------------------
-  // Immutability guards — service-layer enforcement.
-  // F1.5 adds Postgres triggers; for F1 the guards live here.
-  // ---------------------------------------------------------------------------
-
-  /** Throws if the job's snapshot has been frozen. */
-  async assertSnapshotMutable(jobId: string): Promise<void> {
-    const snapshot = await this.prisma.commissioningSnapshot.findUnique({
+  /**
+   * Returns the most recently taken commissioning snapshot for a given job,
+   * or `null` if the job has none. Each snapshot is immutable by architecture;
+   * callers must never mutate the returned object.
+   */
+  findLatestByJobId(jobId: string) {
+    return this.prisma.commissioningSnapshot.findFirst({
       where: { jobId },
-      select: { frozenAt: true },
+      orderBy: { takenAt: 'desc' },
     });
-    if (snapshot?.frozenAt) {
-      throw new ConflictException(
-        `Commissioning snapshot for job ${jobId} is frozen (at ${snapshot.frozenAt.toISOString()}) and cannot be modified. ADR-003/004.`,
-      );
-    }
-  }
-
-  /** Throws if the job is closed. */
-  async assertJobMutable(jobId: string): Promise<void> {
-    const job = await this.prisma.job.findUnique({
-      where: { id: jobId },
-      select: { closedAt: true, status: true },
-    });
-    if (job?.closedAt || job?.status === JobStatus.closed) {
-      throw new ConflictException(
-        `Job ${jobId} is closed and cannot be modified. domain-model §26.`,
-      );
-    }
   }
 }

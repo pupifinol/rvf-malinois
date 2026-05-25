@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from './config/config.module';
 import { EquipmentModule } from './equipment/equipment.module';
 import { HealthModule } from './health/health.module';
+import { JobsModule } from './jobs/jobs.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { CanonicalTagsModule } from './tags/tags.module';
@@ -11,7 +12,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { WellsModule } from './wells/wells.module';
 
 /**
- * AppModule — F4.4D REACTIVATION STATE.
+ * AppModule — F4.4E REACTIVATION STATE.
  *
  * F4.2B (commit `a8862e2` strategy / `e37f7b5` implementation) quarantined
  * every F1/F1.5-dependent feature module while the Prisma client was rebased
@@ -23,9 +24,9 @@ import { WellsModule } from './wells/wells.module';
  *   - F4.4B — WellsModule          /api/v1/wells      — read-only over F4 `wells`.
  *   - F4.4C — CanonicalTagsModule  /api/v1/tags       — read-only over F4 `canonical_tags`.
  *   - F4.4D — EquipmentModule      /api/v1/equipment  — read-only over F4 `equipment_types` + `measurement_units`.
+ *   - F4.4E — JobsModule           /api/v1/jobs       — read-only over F4 `jobs` + `commissioning_snapshots`.
  *
  * Still quarantined until subsequent F4.4 sub-phases:
- *   - JobsModule           (was: /api/v1/jobs)         — F4.4E planned
  *   - TelemetryModule      (was: /api/v1/telemetry)    — F4.4F / F4.6 planned
  *
  * Always-active core:
@@ -66,6 +67,7 @@ import { WellsModule } from './wells/wells.module';
     WellsModule,
     CanonicalTagsModule,
     EquipmentModule,
+    JobsModule,
   ],
 })
 export class AppModule {}
