@@ -1,16 +1,15 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { TenantKind } from '@prisma/client';
 import { z } from 'zod';
 
 import { SystemContext } from '../common/caller-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
-import { TenantsService } from './tenants.service';
+import { TENANT_STATUSES, TenantsService } from './tenants.service';
 
 const ListQuerySchema = z
   .object({
-    kind: z.nativeEnum(TenantKind).optional(),
+    status: z.enum(TENANT_STATUSES).optional(),
   })
   .strict();
 
@@ -22,17 +21,20 @@ export class TenantsController {
   @Get()
   @ApiOperation({
     summary: 'List tenants',
-    description: 'F1 read-only. Server-derived tenant scope (auth) lands in F1.5.',
+    description:
+      'Read-only. Server-derived tenant scope (auth) lands in a later phase; ' +
+      'until then every tenant is visible. Optional `status` filter mirrors the ' +
+      'F4 CHECK constraint on tenants.status (active | inactive).',
   })
-  @ApiQuery({ name: 'kind', enum: TenantKind, required: false })
+  @ApiQuery({ name: 'status', enum: TENANT_STATUSES, required: false })
   list(@Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>) {
     return this.tenants.findAll(SystemContext, query);
   }
 
-  @Get(':code')
-  @ApiOperation({ summary: 'Get a tenant by its code' })
-  @ApiParam({ name: 'code', example: 'repsol' })
-  one(@Param('code') code: string) {
-    return this.tenants.findByCode(SystemContext, code);
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a tenant by its UUID' })
+  @ApiParam({ name: 'id', example: '00000000-0000-0000-0000-000000000001', format: 'uuid' })
+  one(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.tenants.findById(SystemContext, id);
   }
 }

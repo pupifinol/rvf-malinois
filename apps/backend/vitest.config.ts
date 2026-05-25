@@ -14,7 +14,6 @@ export default defineConfig({
       'node_modules/**',
       'dist/**',
       'src/wells/**',
-      'src/tenants/**',
       'src/tags/**',
       'src/equipment/**',
       'src/jobs/**',

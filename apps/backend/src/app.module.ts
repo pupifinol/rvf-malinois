@@ -5,30 +5,28 @@ import { ConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { TenantsModule } from './tenants/tenants.module';
 
 /**
- * AppModule — F4.2B QUARANTINE STATE.
+ * AppModule — F4.4A REACTIVATION STATE.
  *
- * Per the F4.2B insulation strategy
- * (`docs/architecture/RVF_Malinois_F4_2B_Insulation_Strategy_Confirmation.md`,
- * commit a8862e2), the F1/F1.5-dependent feature modules are temporarily
- * removed from application bootstrap while the Prisma client is rebased on
- * the F4 canonical schema. The modules' source files remain in the repo
- * under `src/wells`, `src/tenants`, `src/tags`, `src/equipment`, `src/jobs`,
- * and `src/telemetry`, and are excluded from typecheck / lint / test compile
- * via `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`. They will
- * be reactivated, one at a time, atop the F4 client during phase F4.4 (API
- * adaptation).
+ * F4.2B (commit `a8862e2` strategy / `e37f7b5` implementation) quarantined
+ * every F1/F1.5-dependent feature module while the Prisma client was rebased
+ * on the F4 canonical schema. F4.4 (API adaptation) brings the modules back
+ * online one at a time, each on top of the F4 client. F4.4A reactivates the
+ * first one: `TenantsModule`.
  *
- * Quarantined for the F4.2 → F4.4 window:
- *   - CanonicalTagsModule  (was: /api/v1/tags)
- *   - TenantsModule        (was: /api/v1/tenants)
- *   - WellsModule          (was: /api/v1/wells)
- *   - EquipmentModule      (was: /api/v1/equipment)
- *   - JobsModule           (was: /api/v1/jobs + CommissioningService)
- *   - TelemetryModule      (was: /api/v1/telemetry trends + ingest scaffolding)
+ * Reactivated by F4.4A:
+ *   - TenantsModule      /api/v1/tenants  — read-only over F4 `tenants` table.
  *
- * Active during the quarantine window:
+ * Still quarantined until subsequent F4.4 sub-phases:
+ *   - CanonicalTagsModule  (was: /api/v1/tags)         — F4.4C planned
+ *   - WellsModule          (was: /api/v1/wells)        — F4.4B planned
+ *   - EquipmentModule      (was: /api/v1/equipment)    — F4.4D planned
+ *   - JobsModule           (was: /api/v1/jobs)         — F4.4E planned
+ *   - TelemetryModule      (was: /api/v1/telemetry)    — F4.4F / F4.6 planned
+ *
+ * Always-active core:
  *   - ConfigModule       env-first; required by every other module.
  *   - LoggerModule       Pino structured logging.
  *   - PrismaModule       global Prisma client (F4 schema generated).
@@ -36,10 +34,8 @@ import { RealtimeModule } from './realtime/realtime.module';
  *   - RealtimeModule     Socket.IO gateway scaffolding (no telemetry routing yet).
  *
  * Frontend continues to render via the F3 `lib/api-data/` mock adapter (per
- * engineering-architecture §J); no API consumer is impacted by the
- * quarantine. The Prisma client itself is generated successfully against
- * the F4 baseline schema, so `PrismaService` boots; runtime connection to a
- * database is not exercised in F4.2B.
+ * engineering-architecture §J) until F4.5 wires the UI through to live
+ * endpoints.
  */
 @Module({
   imports: [
@@ -64,6 +60,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     PrismaModule,
     HealthModule,
     RealtimeModule,
+    TenantsModule,
   ],
 })
 export class AppModule {}
