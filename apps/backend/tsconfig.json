@@ -15,7 +15,6 @@
     "node_modules",
     "dist",
     "test",
-    "src/wells/**",
     "src/tags/**",
     "src/equipment/**",
     "src/jobs/**",

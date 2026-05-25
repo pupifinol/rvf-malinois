@@ -6,22 +6,22 @@ import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { WellsModule } from './wells/wells.module';
 
 /**
- * AppModule — F4.4A REACTIVATION STATE.
+ * AppModule — F4.4B REACTIVATION STATE.
  *
  * F4.2B (commit `a8862e2` strategy / `e37f7b5` implementation) quarantined
  * every F1/F1.5-dependent feature module while the Prisma client was rebased
  * on the F4 canonical schema. F4.4 (API adaptation) brings the modules back
- * online one at a time, each on top of the F4 client. F4.4A reactivates the
- * first one: `TenantsModule`.
+ * online one at a time, each on top of the F4 client.
  *
- * Reactivated by F4.4A:
- *   - TenantsModule      /api/v1/tenants  — read-only over F4 `tenants` table.
+ * Reactivated so far:
+ *   - F4.4A — TenantsModule  /api/v1/tenants  — read-only over F4 `tenants`.
+ *   - F4.4B — WellsModule    /api/v1/wells    — read-only over F4 `wells`.
  *
  * Still quarantined until subsequent F4.4 sub-phases:
  *   - CanonicalTagsModule  (was: /api/v1/tags)         — F4.4C planned
- *   - WellsModule          (was: /api/v1/wells)        — F4.4B planned
  *   - EquipmentModule      (was: /api/v1/equipment)    — F4.4D planned
  *   - JobsModule           (was: /api/v1/jobs)         — F4.4E planned
  *   - TelemetryModule      (was: /api/v1/telemetry)    — F4.4F / F4.6 planned
@@ -61,6 +61,7 @@ import { TenantsModule } from './tenants/tenants.module';
     HealthModule,
     RealtimeModule,
     TenantsModule,
+    WellsModule,
   ],
 })
 export class AppModule {}

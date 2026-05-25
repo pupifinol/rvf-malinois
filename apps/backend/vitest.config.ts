@@ -13,7 +13,6 @@ export default defineConfig({
     exclude: [
       'node_modules/**',
       'dist/**',
-      'src/wells/**',
       'src/tags/**',
       'src/equipment/**',
       'src/jobs/**',
