@@ -11,5 +11,5 @@
     "noImplicitAny": true,
     "isolatedModules": true
   },
-  "include": []
+  "include": ["seed.f4.ts"]
 }

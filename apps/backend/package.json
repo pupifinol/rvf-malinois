@@ -8,14 +8,18 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "lint": "eslint src --max-warnings 0",
-    "typecheck": "tsc --noEmit --incremental false",
+    "typecheck": "tsc --noEmit --incremental false && tsc -p prisma/tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "prisma:seed:f4": "ts-node --project prisma/tsconfig.json --transpile-only prisma/seed.f4.ts",
     "clean": "rm -rf dist .turbo"
+  },
+  "prisma": {
+    "seed": "ts-node --project prisma/tsconfig.json --transpile-only prisma/seed.f4.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.7",
