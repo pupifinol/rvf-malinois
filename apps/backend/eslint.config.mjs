@@ -11,6 +11,6 @@ import nest from '@rvf/config/eslint/nest';
 export default [
   ...nest,
   {
-    ignores: ['src/equipment/**', 'src/jobs/**', 'src/telemetry/**'],
+    ignores: ['src/jobs/**', 'src/telemetry/**'],
   },
 ];

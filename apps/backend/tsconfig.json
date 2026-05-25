@@ -11,5 +11,5 @@
     "incremental": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test", "src/equipment/**", "src/jobs/**", "src/telemetry/**"]
+  "exclude": ["node_modules", "dist", "test", "src/jobs/**", "src/telemetry/**"]
 }

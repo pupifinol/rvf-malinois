@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 
 import { ConfigModule } from './config/config.module';
+import { EquipmentModule } from './equipment/equipment.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -10,7 +11,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { WellsModule } from './wells/wells.module';
 
 /**
- * AppModule — F4.4C REACTIVATION STATE.
+ * AppModule — F4.4D REACTIVATION STATE.
  *
  * F4.2B (commit `a8862e2` strategy / `e37f7b5` implementation) quarantined
  * every F1/F1.5-dependent feature module while the Prisma client was rebased
@@ -18,12 +19,12 @@ import { WellsModule } from './wells/wells.module';
  * online one at a time, each on top of the F4 client.
  *
  * Reactivated so far:
- *   - F4.4A — TenantsModule        /api/v1/tenants  — read-only over F4 `tenants`.
- *   - F4.4B — WellsModule          /api/v1/wells    — read-only over F4 `wells`.
- *   - F4.4C — CanonicalTagsModule  /api/v1/tags     — read-only over F4 `canonical_tags`.
+ *   - F4.4A — TenantsModule        /api/v1/tenants    — read-only over F4 `tenants`.
+ *   - F4.4B — WellsModule          /api/v1/wells      — read-only over F4 `wells`.
+ *   - F4.4C — CanonicalTagsModule  /api/v1/tags       — read-only over F4 `canonical_tags`.
+ *   - F4.4D — EquipmentModule      /api/v1/equipment  — read-only over F4 `equipment_types` + `measurement_units`.
  *
  * Still quarantined until subsequent F4.4 sub-phases:
- *   - EquipmentModule      (was: /api/v1/equipment)    — F4.4D planned
  *   - JobsModule           (was: /api/v1/jobs)         — F4.4E planned
  *   - TelemetryModule      (was: /api/v1/telemetry)    — F4.4F / F4.6 planned
  *
@@ -64,6 +65,7 @@ import { WellsModule } from './wells/wells.module';
     TenantsModule,
     WellsModule,
     CanonicalTagsModule,
+    EquipmentModule,
   ],
 })
 export class AppModule {}
