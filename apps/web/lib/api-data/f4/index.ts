@@ -42,6 +42,15 @@ export {
   deriveCommissioningSummary,
   toJobListItemViewModel,
 } from './jobs';
+export {
+  type NumericTelemetryPoint,
+  type NumericTelemetrySeries,
+  adapterGetTelemetryTrends,
+  toNumericTelemetryPoint,
+  toNumericTelemetrySeries,
+  isTelemetryTrendEmpty,
+  MOCK_F4_TRENDS_RANGE,
+} from './telemetry';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.
@@ -55,4 +64,5 @@ export {
   MOCK_F4_JOBS,
   MOCK_F4_JOB_DETAILS,
   MOCK_F4_COMMISSIONING_SNAPSHOTS,
+  MOCK_F4_TELEMETRY_TRENDS,
 } from './mock-fixtures';

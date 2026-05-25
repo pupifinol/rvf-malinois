@@ -40,6 +40,8 @@ import type {
   MeasurementUnitListRow,
   SensorType,
   SensorWithTransmitters,
+  TelemetryPoint,
+  TelemetryTrendsResponse,
   Tenant,
   TransmitterDevice,
   UnitConfigurationRow,
@@ -992,3 +994,148 @@ export const MOCK_F4_JOB_DETAILS: Readonly<Record<string, JobDetail>> = Object.f
 export const MOCK_F4_COMMISSIONING_SNAPSHOTS: readonly CommissioningSnapshot[] = Object.freeze([
   REFERENCE_COMMISSIONING_SNAPSHOT,
 ]);
+
+// =============================================================================
+// F4.5E — Telemetry trends (synthetic, deterministic)
+// =============================================================================
+//
+// The F4.3 seed does NOT populate `telemetry_readings`. On the F4.2 baseline
+// the backend's `GET /api/v1/telemetry/trends` therefore returns
+// `points: []`. F4.6 (telemetry persistence) will eventually populate the
+// table.
+//
+// To unblock screen-readiness in F4.5E, the mock branch synthesises a small
+// deterministic trace per (unitId, canonicalTagName). Two traces are pre-built:
+//
+//   - HP-001 / p_inlet : 60 minute-spaced points, smooth sinusoidal pattern
+//                         centered around 3 800 psi (well inside the 4 500-psi
+//                         warning threshold from F4.5C).
+//   - HP-001 / q_gas   : 60 minute-spaced points, smooth sinusoidal pattern
+//                         centered around 3.0 MMSCFD.
+//
+// All values are derived from a closed-form expression (no `Math.random`, no
+// `Date.now`). Identical input → identical output → reproducible tests.
+//
+// `points[].value` is typed `string` on the API surface (Prisma `Decimal`
+// serializes via `toJSON`). The fixture honours that contract so callers
+// invoking `Number(point.value)` see the same shape mock-mode and api-mode.
+
+const TRENDS_START_TS = MOCK_TIMESTAMP; // '2026-05-24T00:00:00.000Z'
+const TRENDS_POINT_COUNT = 60;
+const TRENDS_INTERVAL_MS = 60 * 1000; // 1 minute
+
+interface SyntheticSeriesSeed {
+  canonicalTagName: string;
+  /** Center value, in canonical engineering unit. */
+  center: number;
+  /** Peak-to-peak swing, in canonical engineering unit. */
+  amplitude: number;
+  /** Number of decimal places carried in the Decimal string. */
+  precision: number;
+  engineeringUnit: string;
+}
+
+/**
+ * Closed-form smooth synthetic value. Same `(seed, index)` → same output.
+ * Combines two sinusoids with co-prime periods so the trace looks "alive"
+ * without being noisy — every tick lands on a deterministic Decimal string.
+ */
+function syntheticValue(seed: SyntheticSeriesSeed, index: number): string {
+  const a = Math.sin((index / 7) * Math.PI);
+  const b = Math.cos((index / 17) * Math.PI);
+  const value = seed.center + seed.amplitude * (0.6 * a + 0.4 * b);
+  return value.toFixed(seed.precision);
+}
+
+function buildSyntheticPoints(seed: SyntheticSeriesSeed, count: number): TelemetryPoint[] {
+  const startEpoch = Date.parse(TRENDS_START_TS);
+  const points: TelemetryPoint[] = [];
+  for (let i = 0; i < count; i++) {
+    points.push({
+      timestamp: new Date(startEpoch + i * TRENDS_INTERVAL_MS).toISOString(),
+      value: syntheticValue(seed, i),
+      engineeringUnit: seed.engineeringUnit,
+      quality: 'good',
+      source: 'mock',
+    });
+  }
+  return points;
+}
+
+const P_INLET_SEED: SyntheticSeriesSeed = {
+  canonicalTagName: 'p_inlet',
+  center: 3800,
+  amplitude: 80,
+  precision: 1,
+  engineeringUnit: 'psi',
+};
+
+const Q_GAS_SEED: SyntheticSeriesSeed = {
+  canonicalTagName: 'q_gas',
+  center: 3.0,
+  amplitude: 0.25,
+  precision: 3,
+  engineeringUnit: 'MMSCFD',
+};
+
+const TRENDS_RANGE_FROM_TS = TRENDS_START_TS;
+const TRENDS_RANGE_TO_TS = new Date(
+  Date.parse(TRENDS_START_TS) + TRENDS_POINT_COUNT * TRENDS_INTERVAL_MS,
+).toISOString();
+
+const tagSummaryFor = (tagName: string): TelemetryTrendsResponse['canonicalTag'] => {
+  const tag = MOCK_F4_CANONICAL_TAGS.find((t) => t.name === tagName);
+  if (!tag) {
+    throw new Error(
+      `mock-fixtures: cannot synthesize telemetry trend — unknown canonical tag '${tagName}'`,
+    );
+  }
+  return {
+    id: tag.id,
+    name: tag.name,
+    displayName: tag.displayName,
+    canonicalUnit: tag.canonicalUnit,
+    category: tag.category,
+    precision: tag.precision,
+  };
+};
+
+const HP_001_P_INLET_TREND: TelemetryTrendsResponse = {
+  unitId: HP_001_ID,
+  canonicalTag: tagSummaryFor('p_inlet'),
+  range: { from: TRENDS_RANGE_FROM_TS, to: TRENDS_RANGE_TO_TS },
+  points: buildSyntheticPoints(P_INLET_SEED, TRENDS_POINT_COUNT),
+};
+
+const HP_001_Q_GAS_TREND: TelemetryTrendsResponse = {
+  unitId: HP_001_ID,
+  canonicalTag: tagSummaryFor('q_gas'),
+  range: { from: TRENDS_RANGE_FROM_TS, to: TRENDS_RANGE_TO_TS },
+  points: buildSyntheticPoints(Q_GAS_SEED, TRENDS_POINT_COUNT),
+};
+
+/**
+ * Lookup key shape: `${unitId}::${canonicalTagName}`. The two preloaded
+ * traces are the F4.5E synthetic set; the adapter falls back to an empty
+ * response shape for any other (unit, tag) combination so a real screen
+ * exercising the chart path against an unknown tag still sees the
+ * `unitId / canonicalTag / range / points: []` envelope.
+ */
+export const MOCK_F4_TELEMETRY_TRENDS: Readonly<Record<string, TelemetryTrendsResponse>> =
+  Object.freeze({
+    [`${HP_001_ID}::p_inlet`]: HP_001_P_INLET_TREND,
+    [`${HP_001_ID}::q_gas`]: HP_001_Q_GAS_TREND,
+  });
+
+/** Internal helper exported for tests. Returns the deterministic key used
+ *  by `MOCK_F4_TELEMETRY_TRENDS`. */
+export const mockTrendsKey = (unitId: string, canonicalTagName: string): string =>
+  `${unitId}::${canonicalTagName}`;
+
+/** Default range covered by the F4.5E synthetic traces. */
+export const MOCK_F4_TRENDS_RANGE = Object.freeze({
+  from: TRENDS_RANGE_FROM_TS,
+  to: TRENDS_RANGE_TO_TS,
+  pointCount: TRENDS_POINT_COUNT,
+  intervalMs: TRENDS_INTERVAL_MS,
+});
