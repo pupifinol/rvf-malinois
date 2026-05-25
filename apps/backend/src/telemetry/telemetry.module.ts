@@ -2,26 +2,24 @@ import { Module } from '@nestjs/common';
 
 import { CanonicalTagResolver } from './canonical-tag-resolver';
 import { TelemetryController } from './telemetry.controller';
-import { TelemetryValidator } from './telemetry.validator';
 import { TrendsService } from './trends.service';
 import { UnitConverter } from './unit-converter';
 
 /**
- * TelemetryModule — F1.5 prep.
+ * TelemetryModule — F4.4F (read-only trends).
  *
- * Bundles the engineering foundations:
- *   - TelemetryValidator     (shape-only, no transform)
- *   - UnitConverter          (query-time conversion, never at ingest)
- *   - CanonicalTagResolver   (frozen-snapshot interpretation)
- *   - TrendsService          (read-only query routing: raw + 1m/15m/1h)
- *   - TelemetryController    (placeholder routes; all 501 until F2)
+ * Wires the single read endpoint `GET /api/v1/telemetry/trends` against
+ * `telemetry_readings`. The F1 surface (validator + ingestion-adapter
+ * contract + last-value cache + hypertable continuous aggregates) is
+ * retired pending F4.6 (telemetry persistence / ingestion).
  *
- * No realtime, no ingest yet — see docs/architecture/telemetry-pipeline.md
- * for the F2 surface.
+ * `UnitConverter` is pure math (F4-clean, no Prisma) and is retained as a
+ * provider so that future write- or projection-layer code can depend on it
+ * without re-discovery; F4.4F's trend endpoint does not call it.
  */
 @Module({
   controllers: [TelemetryController],
-  providers: [TelemetryValidator, UnitConverter, CanonicalTagResolver, TrendsService],
-  exports: [TelemetryValidator, UnitConverter, CanonicalTagResolver, TrendsService],
+  providers: [CanonicalTagResolver, TrendsService, UnitConverter],
+  exports: [CanonicalTagResolver, TrendsService, UnitConverter],
 })
 export class TelemetryModule {}

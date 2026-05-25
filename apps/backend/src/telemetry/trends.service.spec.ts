@@ -1,240 +1,222 @@
-import { NotFoundException } from '@nestjs/common';
-import { Prisma, PrismaClient, Quality } from '@prisma/client';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { type PrismaService } from '../prisma/prisma.service';
-
-import { CanonicalTagResolver } from './canonical-tag-resolver';
 import { TrendsService } from './trends.service';
-import { UnitConverter } from './unit-converter';
+
+import type { CanonicalTagResolver } from './canonical-tag-resolver';
+import type { CallerContext } from '../common/caller-context';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { CanonicalTag } from '@prisma/client';
 
 /**
- * Trend-query tests. Seeds a small window of raw telemetry around a fixed
- * timestamp anchor, then exercises:
- *   - raw query with identity unit (psi → psi)
- *   - raw query with conversion (kPa → psi at query time)
- *   - aggregate query routing (empty result is a valid passing case;
- *     populated aggregates land in F1.5.4 via the generator)
- *   - error paths: unknown job, unknown canonical tag
+ * Mocked-Prisma unit tests for TrendsService (F4.4F).
  *
- * Test fixtures are scoped by a `seq` band so they don't collide with the
- * generator's data (which will own seq >= 1,000,000).
+ * Replaces the previously-quarantined F1 spec (which inserted into the
+ * `telemetry` hypertable to exercise raw + 1m/15m/1h continuous-aggregate
+ * paths). F4.4F covers a single raw range scan against `telemetry_readings`;
+ * the spec asserts the Prisma `where` / `orderBy` / `take` / `select` shape,
+ * the resolver indirection, the tenant scoping seam, and the empty-result
+ * pass-through.
  */
 
-const TEST_SEQ_BASE = 500_000;
+interface TelemetryRow {
+  timestamp: Date;
+  value: unknown;
+  engineeringUnit: string;
+  quality: string;
+  source: string;
+}
 
-describe('TrendsService (F1.5.3)', () => {
-  const prisma = new PrismaClient() as unknown as PrismaService;
-  const resolver = new CanonicalTagResolver(prisma);
-  const converter = new UnitConverter();
-  const service = new TrendsService(prisma, resolver, converter);
+interface FindManyArg {
+  where?: Record<string, unknown>;
+  select?: Record<string, unknown>;
+  orderBy?: unknown;
+  take?: number;
+}
 
-  // Window anchored well in the past so it doesn't drift into the
-  // continuous-aggregate refresh window.
-  const ANCHOR = new Date('2025-01-01T00:00:00.000Z');
-  const window = (offsetSec: number): Date => new Date(ANCHOR.getTime() + offsetSec * 1000);
+function tagFixture(overrides: Partial<CanonicalTag> = {}): CanonicalTag {
+  return {
+    id: '00000000-0000-0000-0000-0000000044f1',
+    name: 'p_inlet',
+    displayName: 'Inlet pressure',
+    canonicalUnit: 'psi',
+    category: 'pressure',
+    precision: 1,
+    description: 'Process pressure at the unit inlet manifold.',
+    deprecated: false,
+    createdAt: new Date('2026-05-24T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-24T00:00:00.000Z'),
+    ...overrides,
+  };
+}
 
-  let jobId: string;
+function rowFixture(overrides: Partial<TelemetryRow> = {}): TelemetryRow {
+  return {
+    timestamp: new Date('2026-05-24T00:00:30.000Z'),
+    value: '4123.4',
+    engineeringUnit: 'psi',
+    quality: 'good',
+    source: 'mock',
+    ...overrides,
+  };
+}
 
-  beforeAll(async () => {
-    await prisma.$connect();
-    const job = await prisma.job.findUnique({ where: { code: 'JOB-2026-0001' } });
-    if (!job) throw new Error('seed missing — run `pnpm prisma:seed`');
-    jobId = job.id;
+function makeMocks() {
+  const findMany = vi.fn<(args?: FindManyArg) => Promise<TelemetryRow[]>>(() =>
+    Promise.resolve([]),
+  );
+  const prisma = { telemetryReading: { findMany } } as unknown as PrismaService;
+  const resolve = vi.fn<(lookup: { id?: string; name?: string }) => Promise<CanonicalTag>>(() =>
+    Promise.resolve(tagFixture()),
+  );
+  const resolver = { resolve } as unknown as CanonicalTagResolver;
+  return { prisma, resolver, mocks: { findMany, resolve } };
+}
 
-    // Seed: 5 rows for p_inlet (3 psi, 2 kPa), 1 bad-quality row.
-    await prisma.telemetry.createMany({
-      data: [
-        {
-          ts: window(0),
-          jobId,
-          canonicalTagName: 'p_inlet',
-          value: 1200,
-          valueUnit: 'psi',
-          quality: Quality.good,
-          seq: BigInt(TEST_SEQ_BASE + 1),
-          unitId: 'EMMAD-01',
-          sensorInstrumentTag: 'PIT-003',
-          sourceAdapter: 'trends-spec',
-        },
-        {
-          ts: window(1),
-          jobId,
-          canonicalTagName: 'p_inlet',
-          value: 1210,
-          valueUnit: 'psi',
-          quality: Quality.good,
-          seq: BigInt(TEST_SEQ_BASE + 2),
-          unitId: 'EMMAD-01',
-          sensorInstrumentTag: 'PIT-003',
-          sourceAdapter: 'trends-spec',
-        },
-        {
-          ts: window(2),
-          jobId,
-          canonicalTagName: 'p_inlet',
-          value: 1220,
-          valueUnit: 'psi',
-          quality: Quality.good,
-          seq: BigInt(TEST_SEQ_BASE + 3),
-          unitId: 'EMMAD-01',
-          sensorInstrumentTag: 'PIT-003',
-          sourceAdapter: 'trends-spec',
-        },
-        {
-          ts: window(3),
-          jobId,
-          canonicalTagName: 'p_inlet',
-          value: 8350,
-          valueUnit: 'kPa',
-          quality: Quality.good,
-          seq: BigInt(TEST_SEQ_BASE + 4),
-          unitId: 'EMMAD-01',
-          sensorInstrumentTag: 'PIT-003',
-          sourceAdapter: 'trends-spec',
-        },
-        {
-          ts: window(4),
-          jobId,
-          canonicalTagName: 'p_inlet',
-          value: 0,
-          valueUnit: 'psi',
-          quality: Quality.bad,
-          seq: BigInt(TEST_SEQ_BASE + 5),
-          unitId: 'EMMAD-01',
-          sensorInstrumentTag: 'PIT-003',
-          sourceAdapter: 'trends-spec',
-        },
-      ],
-    });
-  });
+const UNIT_ID = '00000000-0000-0000-0000-000000004411';
+const FROM = new Date('2026-05-24T00:00:00.000Z');
+const TO = new Date('2026-05-25T00:00:00.000Z');
 
-  afterAll(async () => {
-    await prisma.$executeRaw(Prisma.sql`
-      DELETE FROM telemetry
-      WHERE source_adapter = 'trends-spec'
-        AND seq >= ${TEST_SEQ_BASE}
-        AND seq <  ${TEST_SEQ_BASE + 1000}
-    `);
-    await prisma.$disconnect();
-  });
+describe('TrendsService.query', () => {
+  it('returns empty points + the canonical-tag metadata when telemetry_readings is empty', async () => {
+    const tag = tagFixture();
+    const { prisma, resolver, mocks } = makeMocks();
+    mocks.resolve.mockResolvedValueOnce(tag);
+    const service = new TrendsService(prisma, resolver);
 
-  it('raw bucket returns samples in canonical unit (psi identity)', async () => {
-    const result = await service.query({
-      jobCode: 'JOB-2026-0001',
-      canonicalTagName: 'p_inlet',
-      fromTs: window(0),
-      toTs: window(10),
-      bucket: 'raw',
-      limit: 100,
-    });
-
-    expect(result.aggregates).toHaveLength(0);
-    expect(result.samples.length).toBe(5);
-    expect(result.samples[0]?.canonicalUnit).toBe('psi');
-    expect(result.samples[0]?.value).toBeCloseTo(1200, 6);
-    expect(result.samples[0]?.storedUnit).toBe('psi');
-  });
-
-  it('raw bucket converts kPa → psi at query time without touching storage', async () => {
-    const result = await service.query({
-      jobCode: 'JOB-2026-0001',
-      canonicalTagName: 'p_inlet',
-      fromTs: window(3),
-      toTs: window(4),
-      bucket: 'raw',
-      limit: 10,
-    });
-
-    expect(result.samples).toHaveLength(1);
-    const [sample] = result.samples;
-    if (!sample) throw new Error('expected one converted sample');
-    // 8350 kPa * 0.1450377 ≈ 1211.06 psi
-    expect(sample.value).toBeCloseTo(8350 * 0.1450377, 2);
-    expect(sample.canonicalUnit).toBe('psi');
-    expect(sample.storedUnit).toBe('kPa');
-  });
-
-  it('raw bucket preserves quality so the consumer can filter', async () => {
-    const result = await service.query({
-      jobCode: 'JOB-2026-0001',
-      canonicalTagName: 'p_inlet',
-      fromTs: window(0),
-      toTs: window(10),
-      bucket: 'raw',
-      limit: 100,
-    });
-    const bad = result.samples.filter((s) => s.quality === 'bad');
-    expect(bad).toHaveLength(1);
-    expect(bad[0]?.value).toBe(0);
-  });
-
-  it('raw bucket honours the time window (exclusive on toTs)', async () => {
-    const result = await service.query({
-      jobCode: 'JOB-2026-0001',
-      canonicalTagName: 'p_inlet',
-      fromTs: window(1),
-      toTs: window(3),
-      bucket: 'raw',
-      limit: 100,
-    });
-    expect(result.samples).toHaveLength(2);
-    expect(result.samples[0]?.ts.toISOString()).toBe(window(1).toISOString());
-    expect(result.samples[1]?.ts.toISOString()).toBe(window(2).toISOString());
-  });
-
-  it('throws NotFound when the job code does not exist', async () => {
-    await expect(
-      service.query({
-        jobCode: 'JOB-NO-SUCH',
+    const result = await service.query(
+      {},
+      {
+        unitId: UNIT_ID,
+        from: FROM,
+        to: TO,
         canonicalTagName: 'p_inlet',
-        fromTs: window(0),
-        toTs: window(10),
-        bucket: 'raw',
-        limit: 100,
-      }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+        limit: 1000,
+      },
+    );
+
+    expect(result.points).toEqual([]);
+    expect(result.unitId).toBe(UNIT_ID);
+    expect(result.range).toEqual({ from: FROM, to: TO });
+    expect(result.canonicalTag).toEqual({
+      id: tag.id,
+      name: tag.name,
+      displayName: tag.displayName,
+      canonicalUnit: tag.canonicalUnit,
+      category: tag.category,
+      precision: tag.precision,
+    });
+    expect(mocks.resolve).toHaveBeenCalledWith({ id: undefined, name: 'p_inlet' });
   });
 
-  it('throws NotFound when the canonical tag is not in the job snapshot', async () => {
-    await expect(
-      service.query({
-        jobCode: 'JOB-2026-0001',
-        canonicalTagName: 'gor', // valid tag, but not in EMMAD-01's snapshot
-        fromTs: window(0),
-        toTs: window(10),
-        bucket: 'raw',
-        limit: 100,
-      }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+  it('issues the F4 `where` / `orderBy` / `take` / `select` shape', async () => {
+    const tag = tagFixture();
+    const expectedRows = [
+      rowFixture(),
+      rowFixture({ timestamp: new Date('2026-05-24T00:01:00.000Z') }),
+    ];
+    const { prisma, resolver, mocks } = makeMocks();
+    mocks.resolve.mockResolvedValueOnce(tag);
+    mocks.findMany.mockResolvedValueOnce(expectedRows);
+    const service = new TrendsService(prisma, resolver);
+
+    const result = await service.query(
+      {},
+      {
+        unitId: UNIT_ID,
+        from: FROM,
+        to: TO,
+        canonicalTagId: tag.id,
+        limit: 500,
+      },
+    );
+
+    expect(result.points).toEqual(expectedRows);
+    expect(mocks.findMany).toHaveBeenCalledWith({
+      where: {
+        unitId: UNIT_ID,
+        canonicalTagId: tag.id,
+        timestamp: { gte: FROM, lt: TO },
+      },
+      select: {
+        timestamp: true,
+        value: true,
+        engineeringUnit: true,
+        quality: true,
+        source: true,
+      },
+      orderBy: { timestamp: 'asc' },
+      take: 500,
+    });
   });
 
-  it('1m bucket routes to the telemetry_1m view (empty result is valid)', async () => {
-    const result = await service.query({
-      jobCode: 'JOB-2026-0001',
-      canonicalTagName: 'p_inlet',
-      fromTs: window(0),
-      toTs: window(60),
-      bucket: '1m',
+  it('passes through optional jobId / quality / source filters', async () => {
+    const tag = tagFixture();
+    const { prisma, resolver, mocks } = makeMocks();
+    mocks.resolve.mockResolvedValueOnce(tag);
+    const service = new TrendsService(prisma, resolver);
+
+    await service.query(
+      {},
+      {
+        unitId: UNIT_ID,
+        from: FROM,
+        to: TO,
+        canonicalTagId: tag.id,
+        jobId: '00000000-0000-0000-0000-000000004444',
+        quality: 'good',
+        source: 'mqtt',
+        limit: 100,
+      },
+    );
+
+    const call = mocks.findMany.mock.calls[0]?.[0];
+    expect(call?.where).toEqual({
+      unitId: UNIT_ID,
+      canonicalTagId: tag.id,
+      timestamp: { gte: FROM, lt: TO },
+      jobId: '00000000-0000-0000-0000-000000004444',
+      quality: 'good',
+      source: 'mqtt',
+    });
+    expect(call?.take).toBe(100);
+  });
+
+  it('adds the tenant filter when ctx.tenantId is present', async () => {
+    const tag = tagFixture();
+    const { prisma, resolver, mocks } = makeMocks();
+    mocks.resolve.mockResolvedValueOnce(tag);
+    const service = new TrendsService(prisma, resolver);
+    const scoped: CallerContext = { tenantId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' };
+
+    await service.query(scoped, {
+      unitId: UNIT_ID,
+      from: FROM,
+      to: TO,
+      canonicalTagId: tag.id,
       limit: 100,
     });
-    expect(result.samples).toHaveLength(0);
-    // Aggregates may be empty until the continuous-aggregate refresh has
-    // run; the routing should still succeed without error.
-    expect(Array.isArray(result.aggregates)).toBe(true);
+
+    const call = mocks.findMany.mock.calls[0]?.[0];
+    expect(call?.where).toMatchObject({ tenantId: scoped.tenantId });
   });
 
-  it('15m and 1h buckets route without error', async () => {
-    for (const bucket of ['15m', '1h'] as const) {
-      const result = await service.query({
-        jobCode: 'JOB-2026-0001',
-        canonicalTagName: 'p_inlet',
-        fromTs: window(0),
-        toTs: window(24 * 60 * 60),
-        bucket,
+  it('forwards the canonicalTagName variant to the resolver', async () => {
+    const tag = tagFixture({ name: 'q_gas' });
+    const { prisma, resolver, mocks } = makeMocks();
+    mocks.resolve.mockResolvedValueOnce(tag);
+    const service = new TrendsService(prisma, resolver);
+
+    await service.query(
+      {},
+      {
+        unitId: UNIT_ID,
+        from: FROM,
+        to: TO,
+        canonicalTagName: 'q_gas',
         limit: 100,
-      });
-      expect(Array.isArray(result.aggregates)).toBe(true);
-    }
+      },
+    );
+
+    expect(mocks.resolve).toHaveBeenCalledWith({ id: undefined, name: 'q_gas' });
   });
 });

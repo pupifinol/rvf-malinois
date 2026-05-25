@@ -1,100 +1,101 @@
-import { Quality } from '@prisma/client';
 import { z } from 'zod';
 
 /**
- * Trend-query contracts (F1.5.3).
+ * Trends — query + response contracts (F4.4F).
  *
- * Two return shapes:
- *   - RawSample[]        when bucket === 'raw'
- *   - BucketAggregate[]  for any non-raw bucket size
+ * F4 stores telemetry in `telemetry_readings` (canonical, append-only, plain
+ * PostgreSQL — no TimescaleDB). The reactivated trends endpoint is read-only
+ * and intentionally simple: it returns the raw rows in the stored engineering
+ * unit (no conversion at read time). F4.6 will design any downstream
+ * aggregate / bucketed views; F4.4F covers only the raw range scan against
+ * `(unit_id, canonical_tag_id, timestamp)`.
  *
- * Both shapes report VALUE IN THE CANONICAL UNIT for the requested tag.
- * Conversion from the stored `value_unit` happens at query time inside
- * TrendsService; storage stays untouched (F1.5 guidance #6 — raw fidelity).
- *
- * QualityMix preserves the per-bucket quality histogram. Aggregate
- * min/max/avg/first/last are computed from `good` samples only
- * (domain-model §14: bad data never gets treated as good). They are null
- * when a bucket has no `good` samples.
+ * The Quality / Source string literals below mirror the CHECK constraints
+ * declared in `apps/backend/prisma/migrations/20260524000000_f4_2_baseline/migration.sql`:
+ *   CHECK (quality IN ('good', 'uncertain', 'bad'))
+ *   CHECK (source  IN ('mock','manual','field_gateway','historian','plc',
+ *                      'mqtt','node_red','opc_ua','modbus','edge_gateway'))
+ * Prisma does not model CHECK constraints; these tuples are the
+ * application-side mirror used for query-filter validation.
  */
 
-// ─── Bucket size ────────────────────────────────────────────────────────────
+export const TELEMETRY_QUALITIES = ['good', 'uncertain', 'bad'] as const;
+export type TelemetryQuality = (typeof TELEMETRY_QUALITIES)[number];
 
-export const BUCKET_SIZES = ['raw', '1m', '15m', '1h'] as const;
-export const BucketSizeSchema = z.enum(BUCKET_SIZES);
-export type BucketSize = (typeof BUCKET_SIZES)[number];
+export const TELEMETRY_SOURCES = [
+  'mock',
+  'manual',
+  'field_gateway',
+  'historian',
+  'plc',
+  'mqtt',
+  'node_red',
+  'opc_ua',
+  'modbus',
+  'edge_gateway',
+] as const;
+export type TelemetrySource = (typeof TELEMETRY_SOURCES)[number];
 
-// ─── Quality mix ────────────────────────────────────────────────────────────
+/** Max points the read endpoint will return per request (defends server memory). */
+export const TRENDS_LIMIT_MAX = 5_000;
+/** Default points per request when the caller does not provide `limit`. */
+export const TRENDS_LIMIT_DEFAULT = 1_000;
 
-export const QualityMixSchema = z
+/**
+ * Trend-query schema for the controller's Zod pipe. UUIDs are required at the
+ * call boundary; date strings (`from`, `to`) are coerced; one of
+ * `canonicalTagId` / `canonicalTagName` is required and supplying both is
+ * rejected as ambiguous (clearer than precedence rules).
+ */
+export const TrendsQuerySchema = z
   .object({
-    good: z.number().int().nonnegative(),
-    estimated: z.number().int().nonnegative(),
-    uncertain: z.number().int().nonnegative(),
-    bad: z.number().int().nonnegative(),
-    stale: z.number().int().nonnegative(),
-  })
-  .strict();
-export type QualityMix = z.infer<typeof QualityMixSchema>;
-
-// ─── Raw sample (bucket === 'raw') ──────────────────────────────────────────
-
-export const RawSampleSchema = z
-  .object({
-    ts: z.date(),
-    /** Value already converted to the canonical unit. */
-    value: z.number().finite(),
-    canonicalUnit: z.string(),
-    quality: z.nativeEnum(Quality),
-    /** Original unit as stored. Useful when a downstream tool needs to
-     *  flag converted-from-non-canonical rows. */
-    storedUnit: z.string(),
-  })
-  .strict();
-export type RawSample = z.infer<typeof RawSampleSchema>;
-
-// ─── Aggregate row (bucket === '1m' | '15m' | '1h') ─────────────────────────
-
-export const BucketAggregateSchema = z
-  .object({
-    bucketStart: z.date(),
-    bucketSize: BucketSizeSchema,
-    sampleCount: z.number().int().nonnegative(),
-    qualityMix: QualityMixSchema,
-    /** Computed from `good` samples only. Null when no good samples. */
-    valueMin: z.number().finite().nullable(),
-    valueMax: z.number().finite().nullable(),
-    valueAvg: z.number().finite().nullable(),
-    valueFirst: z.number().finite().nullable(),
-    valueLast: z.number().finite().nullable(),
-    /** Canonical unit. The aggregate is always reported in canonical. */
-    canonicalUnit: z.string(),
-    /** Original stored unit for this bucket. Mid-job unit drift surfaces as
-     *  multiple aggregate rows per bucket — one per storedUnit. */
-    storedUnit: z.string(),
-  })
-  .strict();
-export type BucketAggregate = z.infer<typeof BucketAggregateSchema>;
-
-// ─── Query request ──────────────────────────────────────────────────────────
-
-export const TrendQuerySchema = z
-  .object({
-    jobCode: z.string().min(1).max(64),
-    canonicalTagName: z
-      .string()
-      .min(1)
-      .max(64)
-      .regex(/^[a-z][a-z0-9_]*$/),
-    fromTs: z.coerce.date(),
-    toTs: z.coerce.date(),
-    bucket: BucketSizeSchema.default('raw'),
-    /** Hard cap; service refuses larger windows to keep memory bounded. */
-    limit: z.number().int().min(1).max(50_000).default(5_000),
+    unitId: z.string().uuid(),
+    from: z.coerce.date(),
+    to: z.coerce.date(),
+    canonicalTagId: z.string().uuid().optional(),
+    canonicalTagName: z.string().min(1).max(64).optional(),
+    jobId: z.string().uuid().optional(),
+    quality: z.enum(TELEMETRY_QUALITIES).optional(),
+    source: z.enum(TELEMETRY_SOURCES).optional(),
+    limit: z.coerce.number().int().min(1).max(TRENDS_LIMIT_MAX).default(TRENDS_LIMIT_DEFAULT),
   })
   .strict()
-  .refine((q) => q.fromTs.getTime() < q.toTs.getTime(), {
-    message: 'fromTs must be strictly less than toTs',
-    path: ['fromTs'],
+  .refine((q) => q.from.getTime() < q.to.getTime(), {
+    message: '`from` must be strictly less than `to`',
+    path: ['from'],
+  })
+  .refine((q) => Boolean(q.canonicalTagId) !== Boolean(q.canonicalTagName), {
+    message:
+      'exactly one of `canonicalTagId` or `canonicalTagName` must be provided ' +
+      '(supplying both is rejected as ambiguous)',
+    path: ['canonicalTagName'],
   });
-export type TrendQuery = z.infer<typeof TrendQuerySchema>;
+export type TrendsQuery = z.infer<typeof TrendsQuerySchema>;
+
+/** Single point on the trend series. `value` is a Prisma `Decimal` that
+ *  JSON-serializes to a string via `Decimal.toJSON`; consumers parse to
+ *  `Number` if they need numeric math (F4.4F does no conversion at read
+ *  time). */
+export interface TrendPoint {
+  timestamp: Date;
+  value: unknown;
+  engineeringUnit: string;
+  quality: string;
+  source: string;
+}
+
+/** Full trends response shape. `canonicalTag` is hydrated with the F4
+ *  dictionary metadata so the response is self-describing. */
+export interface TrendsResponse {
+  unitId: string;
+  canonicalTag: {
+    id: string;
+    name: string;
+    displayName: string;
+    canonicalUnit: string;
+    category: string;
+    precision: number;
+  };
+  range: { from: Date; to: Date };
+  points: TrendPoint[];
+}

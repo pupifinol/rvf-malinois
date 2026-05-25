@@ -1,16 +1,7 @@
 import nest from '@rvf/config/eslint/nest';
 
-// F4.2B quarantine: the feature directories below depend on the F1/F1.5
-// Prisma client (removed in F4.2) and are excluded from typecheck/build via
-// `tsconfig.json`. They must also be ignored by ESLint because the typed-lint
-// preset (`recommendedTypeChecked`) attempts to type-check every file it
-// touches; the quarantined files would fail on removed `@prisma/client`
-// exports. The directories are preserved in git for reference during the
-// F4.4 rewrite. See
-// docs/architecture/RVF_Malinois_F4_2B_Insulation_Strategy_Confirmation.md.
-export default [
-  ...nest,
-  {
-    ignores: ['src/telemetry/**'],
-  },
-];
+// F4.4F closes the F4.2B quarantine: every feature directory is now back on
+// the F4 client and lint-clean. This config no longer needs to layer
+// additional `ignores` over the inherited Nest config. See
+// docs/architecture/RVF_Malinois_F4_4F_Telemetry_API_Reactivation_Report.md.
+export default nest;
