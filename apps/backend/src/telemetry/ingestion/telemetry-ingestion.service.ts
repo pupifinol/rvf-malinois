@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { LiveReadingsProjectionService } from '../projection/live-readings-projection.service';
 
 import {
   INGESTION_MAX_FUTURE_SKEW_MS,
@@ -67,7 +68,10 @@ import type { IntegrationMapping, IntegrationSource } from '@prisma/client';
 export class TelemetryIngestionService {
   private readonly logger = new Logger(TelemetryIngestionService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly projection: LiveReadingsProjectionService,
+  ) {}
 
   /**
    * Process a batch of telemetry drafts. Returns one outcome per sample plus
@@ -392,24 +396,67 @@ export class TelemetryIngestionService {
           : BigInt(sample.sequence)
         : null;
 
+    // The canonical insert and the live_readings projection update share the
+    // same transactional unit (F4.6C-0 §7.3 / ADR-008 §3 decision 5). On any
+    // failure inside the transaction — including the projection writer's own
+    // unexpected errors — the canonical row is rolled back, and the outer
+    // catch surfaces the sample as `rejected_quarantined` with
+    // `mapping_engine_failure` (no new reason value introduced).
+    //
+    // The projection updater is invoked only for `accepted` + `quality ===
+    // 'good'`. The projection service enforces the same gate defensively,
+    // but the call-site gate keeps non-good samples out of the projection
+    // path entirely (avoids needless DB work).
+    //
+    // P2002 from the canonical insert (the F4.6A.1 dedup indexes) still
+    // surfaces via the outer catch and is classified as `duplicate` vs
+    // `conflict_quarantined` by `classifyDedup`. The projection's own race
+    // path (P2002 on `live_readings_unit_sensor_tag_uk`) is handled inside
+    // the projection service so it does not leak into the dedup classifier.
+    const valueDecimal = new Prisma.Decimal(valueStr);
+    const ingestionTimestamp = now;
+
     try {
-      const created = await this.prisma.telemetryReading.create({
-        data: {
-          tenantId,
-          unitId: mapping.unitId,
-          sensorId,
-          canonicalTagId,
-          integrationSourceId: source.id,
-          timestamp: sampleTs,
-          value: new Prisma.Decimal(valueStr),
-          engineeringUnit: sample.engineeringUnit,
-          quality: sample.quality,
-          source: source.kind,
-          ingestionId: sample.externalIdentifier,
-          sequence: sequenceBig,
-          jobId: null,
-        },
-        select: { id: true },
+      const created = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.telemetryReading.create({
+          data: {
+            tenantId,
+            unitId: mapping.unitId,
+            sensorId,
+            canonicalTagId,
+            integrationSourceId: source.id,
+            timestamp: sampleTs,
+            value: valueDecimal,
+            engineeringUnit: sample.engineeringUnit,
+            quality: sample.quality,
+            source: source.kind,
+            ingestionId: sample.externalIdentifier,
+            sequence: sequenceBig,
+            jobId: null,
+          },
+          select: { id: true },
+        });
+
+        if (sample.quality === 'good') {
+          await this.projection.updateFromAcceptedTelemetry(
+            {
+              telemetryReadingId: row.id,
+              tenantId,
+              unitId: mapping.unitId,
+              sensorId,
+              canonicalTagId,
+              value: valueDecimal,
+              engineeringUnit: sample.engineeringUnit,
+              quality: 'good',
+              timestamp: sampleTs,
+              source: source.kind,
+              ingestionTimestamp,
+            },
+            tx,
+          );
+        }
+
+        return row;
       });
       return {
         sampleIndex,

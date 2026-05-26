@@ -7,6 +7,7 @@ import { TelemetryIngestionService } from './telemetry-ingestion.service';
 
 import type { IngestTelemetryBatchInput } from './contracts/ingestion';
 import type { PrismaService } from '../../prisma/prisma.service';
+import type { LiveReadingsProjectionService } from '../projection/live-readings-projection.service';
 import type { IntegrationMapping, IntegrationSource } from '@prisma/client';
 
 /**
@@ -197,12 +198,18 @@ function makeMocks() {
   const telemetryIngestionErrorCreate = vi.fn<
     (args: TelemetryIngestionErrorCreateArg) => Promise<{ id: string }>
   >(() => Promise.resolve({ id: ERROR_ID }));
-  // Isolation guards — must NEVER be called by F4.6B.1.
+  // Isolation guards — must NEVER be called by the ingestion service in
+  // F4.6C.1. The projection service is the only authorized writer of
+  // `prisma.liveReading.*`; the ingestion service delegates to it via the
+  // injected `LiveReadingsProjectionService` mock below, so the ingestion
+  // service itself never touches these surfaces.
   const liveReadingCreate = vi.fn<(args: unknown) => Promise<unknown>>();
   const liveReadingUpsert = vi.fn<(args: unknown) => Promise<unknown>>();
+  const liveReadingUpdateMany = vi.fn<(args: unknown) => Promise<unknown>>();
+  const liveReadingFindUnique = vi.fn<(args: unknown) => Promise<unknown>>();
   const alarmEventCreate = vi.fn<(args: unknown) => Promise<unknown>>();
 
-  const prisma = {
+  const prismaShape = {
     integrationSource: { findUnique: integrationSourceFindUnique },
     integrationMapping: { findUnique: integrationMappingFindUnique },
     canonicalTag: { findUnique: canonicalTagFindUnique },
@@ -213,12 +220,46 @@ function makeMocks() {
       findFirst: telemetryReadingFindFirst,
     },
     telemetryIngestionError: { create: telemetryIngestionErrorCreate },
-    liveReading: { create: liveReadingCreate, upsert: liveReadingUpsert },
+    liveReading: {
+      create: liveReadingCreate,
+      upsert: liveReadingUpsert,
+      updateMany: liveReadingUpdateMany,
+      findUnique: liveReadingFindUnique,
+    },
     alarmEvent: { create: alarmEventCreate },
+  };
+
+  // `$transaction` mock invokes the callback with the same prisma shape so
+  // `tx.telemetryReading.create(...)` routes to `telemetryReadingCreate`. The
+  // existing F4.6B.1 tests rely on this seam continuing to work — they did
+  // not need to know about $transaction; with the mock, they don't need to.
+  // The mock also propagates exceptions: if the callback throws, the
+  // exception surfaces from `$transaction` so the outer try/catch in the
+  // service runs (preserving the dedup classification and the
+  // mapping_engine_failure pathway).
+  const prismaTransaction = vi.fn(
+    async <T>(cb: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> =>
+      cb(prismaShape as unknown as Prisma.TransactionClient),
+  );
+
+  const prisma = {
+    ...prismaShape,
+    $transaction: prismaTransaction,
   } as unknown as PrismaService;
+
+  // The injected projection service is mocked so the ingestion service's
+  // delegation is observable. F4.6B.1 isolation invariants carry forward:
+  // the ingestion service must never call `prisma.liveReading.*` directly.
+  const projectionUpdate = vi.fn<(input: unknown, tx?: unknown) => Promise<{ outcome: string }>>(
+    () => Promise.resolve({ outcome: 'created' }),
+  );
+  const projection = {
+    updateFromAcceptedTelemetry: projectionUpdate,
+  } as unknown as LiveReadingsProjectionService;
 
   return {
     prisma,
+    projection,
     mocks: {
       integrationSourceFindUnique,
       integrationMappingFindUnique,
@@ -230,7 +271,11 @@ function makeMocks() {
       telemetryIngestionErrorCreate,
       liveReadingCreate,
       liveReadingUpsert,
+      liveReadingUpdateMany,
+      liveReadingFindUnique,
       alarmEventCreate,
+      prismaTransaction,
+      projectionUpdate,
     },
   };
 }
@@ -249,14 +294,16 @@ function p2002(target: string): Prisma.PrismaClientKnownRequestError {
 
 describe('TelemetryIngestionService.ingestBatch', () => {
   let prisma: PrismaService;
+  let projection: LiveReadingsProjectionService;
   let mocks: ReturnType<typeof makeMocks>['mocks'];
   let service: TelemetryIngestionService;
 
   beforeEach(() => {
     const made = makeMocks();
     prisma = made.prisma;
+    projection = made.projection;
     mocks = made.mocks;
-    service = new TelemetryIngestionService(prisma);
+    service = new TelemetryIngestionService(prisma, projection);
   });
 
   // --- 1. Happy path ------------------------------------------------------
@@ -564,16 +611,21 @@ describe('TelemetryIngestionService.ingestBatch', () => {
     expect(result.results[2]?.outcome).toBe('accepted');
   });
 
-  // --- 17. isolation: no live_readings mutation --------------------------
-  it('17. isolation: service does not call any live_readings mutation', async () => {
+  // --- 17. isolation: ingestion service never calls prisma.liveReading.* --
+  it('17. isolation: ingestion service does not call prisma.liveReading.* directly (delegates to projection)', async () => {
     mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
     mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
     mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
 
     await service.ingestBatch(SystemContext, batchFixture(), NOW);
 
+    // The ingestion service delegates live-readings writes to the injected
+    // `LiveReadingsProjectionService` (F4.6C.1). It must never touch
+    // `prisma.liveReading.*` directly — that's the projection service's job.
     expect(mocks.liveReadingCreate).not.toHaveBeenCalled();
     expect(mocks.liveReadingUpsert).not.toHaveBeenCalled();
+    expect(mocks.liveReadingUpdateMany).not.toHaveBeenCalled();
+    expect(mocks.liveReadingFindUnique).not.toHaveBeenCalled();
   });
 
   // --- 18. isolation: no alarm_events writes ----------------------------
@@ -641,5 +693,178 @@ describe('TelemetryIngestionService.ingestBatch', () => {
     expect(result.acceptedCount).toBe(1);
     const createArg = mocks.telemetryReadingCreate.mock.calls[0]?.[0];
     expect(createArg?.data.canonicalTagId).toBe(CANONICAL_TAG_ID);
+  });
+
+  // =========================================================================
+  // F4.6C.1 — projection integration tests
+  // =========================================================================
+
+  // --- 23. accepted + good → projection updater invoked once -----------
+  it('23. F4.6C.1: accepted good sample calls the projection updater once with the resolved IDs', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.acceptedCount).toBe(1);
+    expect(mocks.projectionUpdate).toHaveBeenCalledTimes(1);
+    const projectionArg = mocks.projectionUpdate.mock.calls[0]?.[0] as {
+      telemetryReadingId: string;
+      tenantId: string;
+      unitId: string;
+      sensorId: string;
+      canonicalTagId: string;
+      quality: string;
+      source: string;
+      engineeringUnit: string;
+    };
+    expect(projectionArg).toMatchObject({
+      telemetryReadingId: READING_ID,
+      tenantId: TENANT_ID,
+      unitId: UNIT_ID,
+      sensorId: SENSOR_ID,
+      canonicalTagId: CANONICAL_TAG_ID,
+      quality: 'good',
+      source: 'manual',
+      engineeringUnit: 'psi',
+    });
+    // The projection update call participates in the same per-sample
+    // transaction as the canonical insert: the second argument is the `tx`
+    // client the $transaction mock passes through.
+    expect(mocks.projectionUpdate.mock.calls[0]?.[1]).toBeDefined();
+  });
+
+  // --- 24. accepted + uncertain → projection NOT called ---------------
+  it('24. F4.6C.1: accepted uncertain sample does not call the projection updater', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+
+    await service.ingestBatch(
+      SystemContext,
+      batchFixture({ samples: [sampleFixture({ quality: 'uncertain' })] }),
+      NOW,
+    );
+
+    expect(mocks.projectionUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- 25. accepted + bad → projection NOT called ---------------------
+  it('25. F4.6C.1: accepted bad sample does not call the projection updater', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+
+    await service.ingestBatch(
+      SystemContext,
+      batchFixture({ samples: [sampleFixture({ quality: 'bad' })] }),
+      NOW,
+    );
+
+    expect(mocks.projectionUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- 26. unknown_source → projection NOT called ---------------------
+  it('26. F4.6C.1: unknown source quarantine does not call the projection updater', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(null);
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(mocks.projectionUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- 27. duplicate (P2002) → projection NOT called ------------------
+  it('27. F4.6C.1: duplicate outcome does not call the projection updater', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockRejectedValueOnce(p2002('telemetry_readings_dedup_seq_uk'));
+    mocks.telemetryReadingFindFirst.mockResolvedValueOnce({
+      id: READING_ID,
+      value: new Prisma.Decimal('4123.4'),
+      engineeringUnit: 'psi',
+      quality: 'good',
+      source: 'manual',
+      timestamp: new Date(RECENT_TS),
+    });
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.duplicateCount).toBe(1);
+    expect(mocks.projectionUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- 28. conflict_quarantined → projection NOT called ---------------
+  it('28. F4.6C.1: conflict_quarantined outcome does not call the projection updater', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockRejectedValueOnce(p2002('telemetry_readings_dedup_seq_uk'));
+    mocks.telemetryReadingFindFirst.mockResolvedValueOnce({
+      id: READING_ID,
+      value: new Prisma.Decimal('4000.0'),
+      engineeringUnit: 'psi',
+      quality: 'good',
+      source: 'manual',
+      timestamp: new Date(RECENT_TS),
+    });
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.conflictQuarantinedCount).toBe(1);
+    expect(mocks.projectionUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- 29. rejected_quarantined (unknown_mapping) → projection NOT called
+  it('29. F4.6C.1: unknown_mapping quarantine does not call the projection updater', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(null);
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.results[0]?.reason).toBe('unknown_mapping');
+    expect(mocks.projectionUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- 30. projection failure → rollback + mapping_engine_failure -----
+  it('30. F4.6C.1: projection failure inside the transaction rolls back and quarantines as mapping_engine_failure', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.projectionUpdate.mockRejectedValueOnce(
+      new Error('projection update failed: simulated DB error'),
+    );
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    // The transaction rolls back (verified by the mock $transaction
+    // propagating the rejection from the callback). The outer try/catch in
+    // the ingestion service treats a non-P2002 throw as
+    // `mapping_engine_failure`. The canonical row counts as "not committed"
+    // for batch purposes — outcome is rejected_quarantined.
+    expect(result.acceptedCount).toBe(0);
+    expect(result.rejectedQuarantinedCount).toBe(1);
+    expect(result.results[0]?.outcome).toBe('rejected_quarantined');
+    expect(result.results[0]?.reason).toBe('mapping_engine_failure');
+    // A quarantine row is written by the outer catch path.
+    expect(mocks.telemetryIngestionErrorCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.telemetryIngestionErrorCreate.mock.calls[0]?.[0].data.reason).toBe(
+      'mapping_engine_failure',
+    );
+  });
+
+  // --- 31. $transaction wraps create + projection ---------------------
+  it('31. F4.6C.1: canonical insert and projection update participate in the same $transaction', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    // $transaction was invoked exactly once for the single accepted sample.
+    expect(mocks.prismaTransaction).toHaveBeenCalledTimes(1);
+    // Inside the transaction, both the canonical insert and the projection
+    // update happened.
+    expect(mocks.telemetryReadingCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.projectionUpdate).toHaveBeenCalledTimes(1);
   });
 });
