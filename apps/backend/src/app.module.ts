@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 
 import { ConfigModule } from './config/config.module';
@@ -8,9 +8,22 @@ import { JobsModule } from './jobs/jobs.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { CanonicalTagsModule } from './tags/tags.module';
+import { TelemetryIngestionModule } from './telemetry/ingestion/telemetry-ingestion.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { WellsModule } from './wells/wells.module';
+
+/**
+ * F4.6B.1 — the `TelemetryIngestionModule` is conditionally registered when
+ * `process.env.RVF_INGEST_ENABLED === 'true'`. When the flag is unset (the
+ * default), the module is not imported, the controller is not mounted, and
+ * `POST /api/v1/telemetry/ingest` returns Nest's default 404. This is a
+ * boot-time decision per F4.6B-0 §8.2 (no runtime guard inside the
+ * controller) so that production builds with the flag unset never expose the
+ * ingestion endpoint.
+ */
+const optionalIngestionModule = (): (DynamicModule | typeof TelemetryIngestionModule)[] =>
+  process.env.RVF_INGEST_ENABLED === 'true' ? [TelemetryIngestionModule] : [];
 
 /**
  * AppModule — F4.4 COMPLETE STATE.
@@ -75,6 +88,7 @@ import { WellsModule } from './wells/wells.module';
     EquipmentModule,
     JobsModule,
     TelemetryModule,
+    ...optionalIngestionModule(),
   ],
 })
 export class AppModule {}
