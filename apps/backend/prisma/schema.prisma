@@ -54,22 +54,24 @@ model Tenant {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  users                  User[]
-  measurementUnits       MeasurementUnit[]
-  sensors                Sensor[]
-  transmitterDevices     TransmitterDevice[]
-  sensorTagBindings      SensorTagBinding[]
-  unitConfigurations     UnitConfiguration[]
-  unitOperatingEnvelopes UnitOperatingEnvelope[]
-  alarmRules             AlarmRule[]
-  alarmEvents            AlarmEvent[]
-  wells                  Well[]
-  jobs                   Job[]
-  commissioningSnapshots CommissioningSnapshot[]
-  telemetryReadings      TelemetryReading[]
-  integrationSources     IntegrationSource[]
-  integrationMappings    IntegrationMapping[]
-  auditLogs              AuditLog[]
+  users                    User[]
+  measurementUnits         MeasurementUnit[]
+  sensors                  Sensor[]
+  transmitterDevices       TransmitterDevice[]
+  sensorTagBindings        SensorTagBinding[]
+  unitConfigurations       UnitConfiguration[]
+  unitOperatingEnvelopes   UnitOperatingEnvelope[]
+  alarmRules               AlarmRule[]
+  alarmEvents              AlarmEvent[]
+  wells                    Well[]
+  jobs                     Job[]
+  commissioningSnapshots   CommissioningSnapshot[]
+  telemetryReadings        TelemetryReading[]
+  integrationSources       IntegrationSource[]
+  integrationMappings      IntegrationMapping[]
+  auditLogs                AuditLog[]
+  liveReadings             LiveReading[]
+  telemetryIngestionErrors TelemetryIngestionError[]
 
   @@map("tenants")
 }
@@ -136,17 +138,19 @@ model MeasurementUnit {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  equipmentType          EquipmentType           @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
-  sensors                Sensor[]
-  unitConfigurations     UnitConfiguration[]
-  unitOperatingEnvelopes UnitOperatingEnvelope[]
-  alarmRules             AlarmRule[]
-  alarmEvents            AlarmEvent[]
-  jobs                   Job[]
-  commissioningSnapshots CommissioningSnapshot[]
-  telemetryReadings      TelemetryReading[]
-  integrationMappings    IntegrationMapping[]
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  equipmentType            EquipmentType             @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  sensors                  Sensor[]
+  unitConfigurations       UnitConfiguration[]
+  unitOperatingEnvelopes   UnitOperatingEnvelope[]
+  alarmRules               AlarmRule[]
+  alarmEvents              AlarmEvent[]
+  jobs                     Job[]
+  commissioningSnapshots   CommissioningSnapshot[]
+  telemetryReadings        TelemetryReading[]
+  integrationMappings      IntegrationMapping[]
+  liveReadings             LiveReading[]
+  telemetryIngestionErrors TelemetryIngestionError[]
 
   @@unique([tenantId, code], map: "measurement_units_tenant_code_uk")
   @@index([tenantId], map: "measurement_units_tenant_idx")
@@ -172,12 +176,14 @@ model Sensor {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  unit                MeasurementUnit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  transmitterDevices  TransmitterDevice[]
-  sensorTagBindings   SensorTagBinding[]
-  telemetryReadings   TelemetryReading[]
-  integrationMappings IntegrationMapping[]
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit                     MeasurementUnit           @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  transmitterDevices       TransmitterDevice[]
+  sensorTagBindings        SensorTagBinding[]
+  telemetryReadings        TelemetryReading[]
+  integrationMappings      IntegrationMapping[]
+  liveReadings             LiveReading[]
+  telemetryIngestionErrors TelemetryIngestionError[]
 
   @@index([tenantId], map: "sensors_tenant_idx")
   @@index([unitId], map: "sensors_unit_idx")
@@ -191,28 +197,28 @@ model Sensor {
 /// Partial index on (sensor_id) WHERE installation_status='installed'
 /// is created in raw SQL in the migration.
 model TransmitterDevice {
-  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId               String    @map("tenant_id") @db.Uuid
-  sensorId               String    @map("sensor_id") @db.Uuid
-  serialNumber           String    @map("serial_number")
-  manufacturer           String
-  model                  String
-  protocol               String
-  signalType             String    @map("signal_type")
-  modbusAddress          Int?      @map("modbus_address")
-  registerMapReference   String?   @map("register_map_reference")
-  channel                String?
-  firmwareVersion        String?   @map("firmware_version")
-  calibrationDate        DateTime? @map("calibration_date") @db.Date
-  calibrationRangeMin    Decimal?  @map("calibration_range_min") @db.Decimal
-  calibrationRangeMax    Decimal?  @map("calibration_range_max") @db.Decimal
-  calibrationReference   String?   @map("calibration_reference")
-  batteryStatus          String?   @map("battery_status")
-  installationStatus     String    @default("installed") @map("installation_status")
-  installedAt            DateTime? @map("installed_at") @db.Timestamptz(6)
-  removedAt              DateTime? @map("removed_at") @db.Timestamptz(6)
-  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  sensorId             String    @map("sensor_id") @db.Uuid
+  serialNumber         String    @map("serial_number")
+  manufacturer         String
+  model                String
+  protocol             String
+  signalType           String    @map("signal_type")
+  modbusAddress        Int?      @map("modbus_address")
+  registerMapReference String?   @map("register_map_reference")
+  channel              String?
+  firmwareVersion      String?   @map("firmware_version")
+  calibrationDate      DateTime? @map("calibration_date") @db.Date
+  calibrationRangeMin  Decimal?  @map("calibration_range_min") @db.Decimal
+  calibrationRangeMax  Decimal?  @map("calibration_range_max") @db.Decimal
+  calibrationReference String?   @map("calibration_reference")
+  batteryStatus        String?   @map("battery_status")
+  installationStatus   String    @default("installed") @map("installation_status")
+  installedAt          DateTime? @map("installed_at") @db.Timestamptz(6)
+  removedAt            DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sensor Sensor @relation(fields: [sensorId], references: [id], onDelete: Restrict)
@@ -229,22 +235,24 @@ model TransmitterDevice {
 /// RVF's fixed measurement vocabulary (p_inlet, t_gas_out, q_liquid, ...).
 /// Owned by RVF; globally unique; not tenant-scoped.
 model CanonicalTag {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String   @unique
-  displayName    String   @map("display_name")
-  canonicalUnit  String   @map("canonical_unit")
-  category       String
-  precision      Int      @default(2)
-  description    String?
-  deprecated     Boolean  @default(false)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String   @unique
+  displayName   String   @map("display_name")
+  canonicalUnit String   @map("canonical_unit")
+  category      String
+  precision     Int      @default(2)
+  description   String?
+  deprecated    Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  sensorTagBindings   SensorTagBinding[]
-  alarmRules          AlarmRule[]
-  alarmEvents         AlarmEvent[]
-  telemetryReadings   TelemetryReading[]
-  integrationMappings IntegrationMapping[]
+  sensorTagBindings        SensorTagBinding[]
+  alarmRules               AlarmRule[]
+  alarmEvents              AlarmEvent[]
+  telemetryReadings        TelemetryReading[]
+  integrationMappings      IntegrationMapping[]
+  liveReadings             LiveReading[]
+  telemetryIngestionErrors TelemetryIngestionError[]
 
   @@map("canonical_tags")
 }
@@ -341,23 +349,23 @@ model UnitOperatingEnvelope {
 /// unique index in raw SQL).
 /// `severity` CHECK in ('info','warning','critical').
 model AlarmRule {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String   @map("tenant_id") @db.Uuid
-  unitId               String   @map("unit_id") @db.Uuid
-  canonicalTagId       String   @map("canonical_tag_id") @db.Uuid
-  severity             String
-  enabled              Boolean  @default(true)
-  lowLowThreshold      Decimal? @map("low_low_threshold") @db.Decimal
-  lowThreshold         Decimal? @map("low_threshold") @db.Decimal
-  highThreshold        Decimal? @map("high_threshold") @db.Decimal
-  highHighThreshold    Decimal? @map("high_high_threshold") @db.Decimal
-  deadband             Decimal? @db.Decimal
-  delaySeconds         Int?     @map("delay_seconds")
-  messageTemplate      String?  @map("message_template")
-  version              Int
-  isCurrent            Boolean  @default(false) @map("is_current")
-  createdBy            String?  @map("created_by") @db.Uuid
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  unitId            String   @map("unit_id") @db.Uuid
+  canonicalTagId    String   @map("canonical_tag_id") @db.Uuid
+  severity          String
+  enabled           Boolean  @default(true)
+  lowLowThreshold   Decimal? @map("low_low_threshold") @db.Decimal
+  lowThreshold      Decimal? @map("low_threshold") @db.Decimal
+  highThreshold     Decimal? @map("high_threshold") @db.Decimal
+  highHighThreshold Decimal? @map("high_high_threshold") @db.Decimal
+  deadband          Decimal? @db.Decimal
+  delaySeconds      Int?     @map("delay_seconds")
+  messageTemplate   String?  @map("message_template")
+  version           Int
+  isCurrent         Boolean  @default(false) @map("is_current")
+  createdBy         String?  @map("created_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   unit         MeasurementUnit  @relation(fields: [unitId], references: [id], onDelete: Restrict)
@@ -377,13 +385,13 @@ model AlarmRule {
 /// populated in F4.2; reserved for future use.
 /// `kind` CHECK in ('low_low','low','high','high_high','rate_of_change').
 model AlarmThreshold {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  alarmRuleId   String   @map("alarm_rule_id") @db.Uuid
-  kind          String
-  value         Decimal  @db.Decimal
-  deadband      Decimal? @db.Decimal
-  delaySeconds  Int?     @map("delay_seconds")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alarmRuleId  String   @map("alarm_rule_id") @db.Uuid
+  kind         String
+  value        Decimal  @db.Decimal
+  deadband     Decimal? @db.Decimal
+  delaySeconds Int?     @map("delay_seconds")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   alarmRule AlarmRule @relation(fields: [alarmRuleId], references: [id], onDelete: Cascade)
 
@@ -397,30 +405,30 @@ model AlarmThreshold {
 /// `state`              CHECK in ('active','acknowledged','cleared').
 /// `threshold_violated` CHECK in ('low_low','low','high','high_high','rate_of_change').
 model AlarmEvent {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId           String    @map("tenant_id") @db.Uuid
-  unitId             String    @map("unit_id") @db.Uuid
-  canonicalTagId     String    @map("canonical_tag_id") @db.Uuid
-  alarmRuleId        String?   @map("alarm_rule_id") @db.Uuid
-  severity           String
-  triggeredValue     Decimal   @map("triggered_value") @db.Decimal
-  thresholdViolated  String    @map("threshold_violated")
-  state              String    @default("active")
-  firstTriggeredAt   DateTime  @map("first_triggered_at") @db.Timestamptz(6)
-  acknowledgedAt     DateTime? @map("acknowledged_at") @db.Timestamptz(6)
-  acknowledgedBy     String?   @map("acknowledged_by") @db.Uuid
-  clearedAt          DateTime? @map("cleared_at") @db.Timestamptz(6)
-  jobId              String?   @map("job_id") @db.Uuid
-  ruleSnapshot       Json      @map("rule_snapshot")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  unitId            String    @map("unit_id") @db.Uuid
+  canonicalTagId    String    @map("canonical_tag_id") @db.Uuid
+  alarmRuleId       String?   @map("alarm_rule_id") @db.Uuid
+  severity          String
+  triggeredValue    Decimal   @map("triggered_value") @db.Decimal
+  thresholdViolated String    @map("threshold_violated")
+  state             String    @default("active")
+  firstTriggeredAt  DateTime  @map("first_triggered_at") @db.Timestamptz(6)
+  acknowledgedAt    DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  acknowledgedBy    String?   @map("acknowledged_by") @db.Uuid
+  clearedAt         DateTime? @map("cleared_at") @db.Timestamptz(6)
+  jobId             String?   @map("job_id") @db.Uuid
+  ruleSnapshot      Json      @map("rule_snapshot")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  unit           MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  canonicalTag   CanonicalTag    @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
-  alarmRule      AlarmRule?      @relation(fields: [alarmRuleId], references: [id], onDelete: SetNull)
-  acknowledgedByUser User?       @relation("AlarmEventAcknowledgedBy", fields: [acknowledgedBy], references: [id], onDelete: SetNull)
-  job            Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit               MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  canonicalTag       CanonicalTag    @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
+  alarmRule          AlarmRule?      @relation(fields: [alarmRuleId], references: [id], onDelete: SetNull)
+  acknowledgedByUser User?           @relation("AlarmEventAcknowledgedBy", fields: [acknowledgedBy], references: [id], onDelete: SetNull)
+  job                Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@index([tenantId], map: "alarm_events_tenant_idx")
   @@index([unitId, firstTriggeredAt(sort: Desc)], map: "alarm_events_unit_time_idx")
@@ -436,17 +444,17 @@ model AlarmEvent {
 /// Operational subject being tested (Modelo de Dominio). client_id is
 /// reserved for future use when client identity is separated from tenant.
 model Well {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String   @map("tenant_id") @db.Uuid
-  clientId      String?  @map("client_id") @db.Uuid
-  name          String
-  fieldOrSite   String?  @map("field_or_site")
-  location      String?
-  type          String?
-  fluid         String?
-  designLimits  Json?    @map("design_limits")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  clientId     String?  @map("client_id") @db.Uuid
+  name         String
+  fieldOrSite  String?  @map("field_or_site")
+  location     String?
+  type         String?
+  fluid        String?
+  designLimits Json?    @map("design_limits")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   jobs   Job[]
@@ -461,26 +469,26 @@ model Well {
 /// declared here and validated against commissioning_snapshots, which itself
 /// references jobs(id). Prisma migrate sequences the SQL correctly.
 model Job {
-  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                  String    @map("tenant_id") @db.Uuid
-  wellId                    String    @map("well_id") @db.Uuid
-  unitId                    String    @map("unit_id") @db.Uuid
-  commissioningSnapshotId   String?   @map("commissioning_snapshot_id") @db.Uuid
-  engineerId                String?   @map("engineer_id") @db.Uuid
-  status                    String    @default("programmed")
-  startedAt                 DateTime? @map("started_at") @db.Timestamptz(6)
-  closedAt                  DateTime? @map("closed_at") @db.Timestamptz(6)
-  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                String    @map("tenant_id") @db.Uuid
+  wellId                  String    @map("well_id") @db.Uuid
+  unitId                  String    @map("unit_id") @db.Uuid
+  commissioningSnapshotId String?   @map("commissioning_snapshot_id") @db.Uuid
+  engineerId              String?   @map("engineer_id") @db.Uuid
+  status                  String    @default("programmed")
+  startedAt               DateTime? @map("started_at") @db.Timestamptz(6)
+  closedAt                DateTime? @map("closed_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant                   Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  well                     Well                    @relation(fields: [wellId], references: [id], onDelete: Restrict)
-  unit                     MeasurementUnit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  commissioningSnapshot    CommissioningSnapshot?  @relation("JobCurrentSnapshot", fields: [commissioningSnapshotId], references: [id], onDelete: SetNull)
-  engineer                 User?                   @relation("JobEngineer", fields: [engineerId], references: [id], onDelete: SetNull)
-  alarmEvents              AlarmEvent[]
-  telemetryReadings        TelemetryReading[]
-  commissioningSnapshots   CommissioningSnapshot[] @relation("CommissioningSnapshotJob")
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  well                   Well                    @relation(fields: [wellId], references: [id], onDelete: Restrict)
+  unit                   MeasurementUnit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  commissioningSnapshot  CommissioningSnapshot?  @relation("JobCurrentSnapshot", fields: [commissioningSnapshotId], references: [id], onDelete: SetNull)
+  engineer               User?                   @relation("JobEngineer", fields: [engineerId], references: [id], onDelete: SetNull)
+  alarmEvents            AlarmEvent[]
+  telemetryReadings      TelemetryReading[]
+  commissioningSnapshots CommissioningSnapshot[] @relation("CommissioningSnapshotJob")
 
   @@index([tenantId], map: "jobs_tenant_idx")
   @@index([wellId], map: "jobs_well_idx")
@@ -494,17 +502,17 @@ model Job {
 /// `immutable` flag + CHECK constraint document the contract, and a future
 /// hardening pass will add trigger / GRANT enforcement.
 model CommissioningSnapshot {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String   @map("tenant_id") @db.Uuid
-  jobId                 String   @map("job_id") @db.Uuid
-  unitId                String   @map("unit_id") @db.Uuid
-  takenAt               DateTime @default(now()) @map("taken_at") @db.Timestamptz(6)
-  effectiveThresholds   Json     @map("effective_thresholds")
-  sensorMappings        Json     @map("sensor_mappings")
-  engineeringEnvelope   Json     @map("engineering_envelope")
-  ruleVersions          Json     @map("rule_versions")
-  immutable             Boolean  @default(true)
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  jobId               String   @map("job_id") @db.Uuid
+  unitId              String   @map("unit_id") @db.Uuid
+  takenAt             DateTime @default(now()) @map("taken_at") @db.Timestamptz(6)
+  effectiveThresholds Json     @map("effective_thresholds")
+  sensorMappings      Json     @map("sensor_mappings")
+  engineeringEnvelope Json     @map("engineering_envelope")
+  ruleVersions        Json     @map("rule_versions")
+  immutable           Boolean  @default(true)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   job        Job             @relation("CommissioningSnapshotJob", fields: [jobId], references: [id], onDelete: Restrict)
@@ -527,29 +535,38 @@ model CommissioningSnapshot {
 /// `quality` CHECK in ('good','uncertain','bad').
 /// `source`  CHECK in ('mock','manual','field_gateway','historian','plc',
 ///                     'mqtt','node_red','opc_ua','modbus','edge_gateway').
-/// Partial index on (job_id, timestamp DESC) WHERE job_id IS NOT NULL is
-/// created in raw SQL.
+/// `integration_source_id` (F4.6A.1, nullable): FK to integration_sources.
+/// Scopes the source-aware sequence dedup partial unique index. Legacy /
+/// manual / simulator drafts that do not resolve a specific IntegrationSource
+/// row may carry NULL; such rows fall under the timestamp-based dedup index.
+/// Partial indexes on (job_id, timestamp DESC) WHERE job_id IS NOT NULL and
+/// on (integration_source_id) WHERE integration_source_id IS NOT NULL are
+/// created in raw SQL, along with the two F4.6A.1 dedup partial unique
+/// indexes (sequence-based source-aware, timestamp-based canonical-instrument).
 model TelemetryReading {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  unitId          String   @map("unit_id") @db.Uuid
-  sensorId        String   @map("sensor_id") @db.Uuid
-  canonicalTagId  String   @map("canonical_tag_id") @db.Uuid
-  timestamp       DateTime @db.Timestamptz(6)
-  value           Decimal  @db.Decimal
-  engineeringUnit String   @map("engineering_unit")
-  quality         String
-  source          String
-  ingestionId     String?  @map("ingestion_id")
-  sequence        BigInt?
-  jobId           String?  @map("job_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  unitId              String   @map("unit_id") @db.Uuid
+  sensorId            String   @map("sensor_id") @db.Uuid
+  canonicalTagId      String   @map("canonical_tag_id") @db.Uuid
+  timestamp           DateTime @db.Timestamptz(6)
+  value               Decimal  @db.Decimal
+  engineeringUnit     String   @map("engineering_unit")
+  quality             String
+  source              String
+  ingestionId         String?  @map("ingestion_id")
+  sequence            BigInt?
+  jobId               String?  @map("job_id") @db.Uuid
+  integrationSourceId String?  @map("integration_source_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  unit         MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  sensor       Sensor          @relation(fields: [sensorId], references: [id], onDelete: Restrict)
-  canonicalTag CanonicalTag    @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
-  job          Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit              MeasurementUnit    @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  sensor            Sensor             @relation(fields: [sensorId], references: [id], onDelete: Restrict)
+  canonicalTag      CanonicalTag       @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
+  job               Job?               @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  integrationSource IntegrationSource? @relation(fields: [integrationSourceId], references: [id], onDelete: SetNull)
+  liveReadings      LiveReading[]      @relation("LiveReadingLatestTelemetry")
 
   @@index([unitId, canonicalTagId, timestamp(sort: Desc)], map: "telemetry_readings_unit_tag_time_idx")
   @@index([tenantId, timestamp(sort: Desc)], map: "telemetry_readings_tenant_time_idx")
@@ -557,10 +574,12 @@ model TelemetryReading {
   @@map("telemetry_readings")
 }
 
-// NOTE: live_readings_projection is a DERIVED SQL view defined in the
-// migration. It is intentionally NOT modeled in Prisma — consumers read it
-// via $queryRaw. F4.6 picks the final implementation (view, materialized
-// view, upsert-maintained projection table, or application cache).
+// NOTE: live_readings_projection (SQL VIEW) is preserved by F4.6A.1 for
+// non-destructive coexistence with the new live_readings projection table
+// below (F4.6A.0 plan §5.E). The VIEW continues to exist over
+// telemetry_readings via DISTINCT ON; F4.6C cuts API consumers to the new
+// table. The VIEW is intentionally NOT modeled in Prisma — consumers read
+// it via $queryRaw, and the new LiveReading model is the modeled path.
 
 // =============================================================================
 // H. Integration metadata (placeholders, F4 §I)
@@ -572,18 +591,20 @@ model TelemetryReading {
 ///                    'edge_gateway','plc','manual','historian').
 /// `status` CHECK in ('active','inactive').
 model IntegrationSource {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String   @map("tenant_id") @db.Uuid
-  kind                  String
-  name                  String
-  status                String   @default("inactive")
-  config                Json     @default("{}")
-  credentialsReference  String?  @map("credentials_reference")
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  kind                 String
+  name                 String
+  status               String   @default("inactive")
+  config               Json     @default("{}")
+  credentialsReference String?  @map("credentials_reference")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  mappings IntegrationMapping[]
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  mappings                 IntegrationMapping[]
+  telemetryReadings        TelemetryReading[]
+  telemetryIngestionErrors TelemetryIngestionError[]
 
   @@index([tenantId], map: "integration_sources_tenant_idx")
   @@map("integration_sources")
@@ -592,24 +613,25 @@ model IntegrationSource {
 /// Translation from external identifier to canonical (unit, sensor,
 /// canonical_tag) triple. external_identifier is unique per integration_source.
 model IntegrationMapping {
-  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                  String   @map("tenant_id") @db.Uuid
-  integrationSourceId       String   @map("integration_source_id") @db.Uuid
-  externalIdentifier        String   @map("external_identifier")
-  unitId                    String   @map("unit_id") @db.Uuid
-  sensorId                  String?  @map("sensor_id") @db.Uuid
-  canonicalTagId            String?  @map("canonical_tag_id") @db.Uuid
-  engineeringUnitOverride   String?  @map("engineering_unit_override")
-  transformationReference   String?  @map("transformation_reference")
-  enabled                   Boolean  @default(false)
-  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                String   @map("tenant_id") @db.Uuid
+  integrationSourceId     String   @map("integration_source_id") @db.Uuid
+  externalIdentifier      String   @map("external_identifier")
+  unitId                  String   @map("unit_id") @db.Uuid
+  sensorId                String?  @map("sensor_id") @db.Uuid
+  canonicalTagId          String?  @map("canonical_tag_id") @db.Uuid
+  engineeringUnitOverride String?  @map("engineering_unit_override")
+  transformationReference String?  @map("transformation_reference")
+  enabled                 Boolean  @default(false)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  integrationSource IntegrationSource @relation(fields: [integrationSourceId], references: [id], onDelete: Restrict)
-  unit              MeasurementUnit   @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  sensor            Sensor?           @relation(fields: [sensorId], references: [id], onDelete: SetNull)
-  canonicalTag      CanonicalTag?     @relation(fields: [canonicalTagId], references: [id], onDelete: SetNull)
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  integrationSource        IntegrationSource         @relation(fields: [integrationSourceId], references: [id], onDelete: Restrict)
+  unit                     MeasurementUnit           @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  sensor                   Sensor?                   @relation(fields: [sensorId], references: [id], onDelete: SetNull)
+  canonicalTag             CanonicalTag?             @relation(fields: [canonicalTagId], references: [id], onDelete: SetNull)
+  telemetryIngestionErrors TelemetryIngestionError[]
 
   @@unique([integrationSourceId, externalIdentifier], map: "integration_mappings_source_external_uk")
   @@index([tenantId], map: "integration_mappings_tenant_idx")
@@ -618,6 +640,117 @@ model IntegrationMapping {
   @@index([sensorId], map: "integration_mappings_sensor_idx")
   @@index([canonicalTagId], map: "integration_mappings_canonical_tag_idx")
   @@map("integration_mappings")
+}
+
+// =============================================================================
+// H+. F4.6A.1 telemetry hardening — projection table and quarantine surface
+// =============================================================================
+//
+// Both models below are introduced by the F4.6A.1 migration per the approved
+// F4.6A.0 schema-hardening plan and ADR-008.
+//
+//   - `LiveReading` is an upsert-maintained projection of the latest reading
+//     per (unit_id, sensor_id, canonical_tag_id). Derived from
+//     telemetry_readings; NOT canonical. The pre-existing
+//     live_readings_projection SQL VIEW is preserved (non-destructive
+//     coexistence) and continues to operate over telemetry_readings; F4.6C
+//     will decide its final fate.
+//
+//   - `TelemetryIngestionError` is the quarantine surface for telemetry
+//     drafts that did not enter telemetry_readings (late / unknown mapping /
+//     disabled mapping / unresolved instrument / unit mismatch / outside
+//     envelope / dedup conflict / etc.). Diagnostic, not canonical. Rows are
+//     prunable by a future operational retention task (default guidance: 30
+//     days). **No Jobs-specific reason is included** — the F4.6 / ADR-008
+//     Jobs deferral is preserved; `inactive_context` is the neutral
+//     forward-looking placeholder.
+
+/// Upsert-maintained projection of the latest reading per
+/// (unit_id, sensor_id, canonical_tag_id). Derived from telemetry_readings;
+/// not canonical. F4.6A.1 introduces the table; F4.6C will populate it from
+/// the ingestion boundary.
+/// `quality` CHECK in ('good','uncertain','bad').
+/// `source`  CHECK in ('mock','manual','field_gateway','historian','plc',
+///                     'mqtt','node_red','opc_ua','modbus','edge_gateway')
+///           or NULL (legacy / unspecified).
+/// `status` is intentionally unconstrained at F4.6A.1; F4.6C / F4.6D may add
+/// a CHECK if a per-row freshness / staleness enum becomes useful.
+model LiveReading {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String    @map("tenant_id") @db.Uuid
+  unitId                   String    @map("unit_id") @db.Uuid
+  sensorId                 String    @map("sensor_id") @db.Uuid
+  canonicalTagId           String    @map("canonical_tag_id") @db.Uuid
+  latestTelemetryReadingId String?   @map("latest_telemetry_reading_id") @db.Uuid
+  value                    Decimal   @db.Decimal
+  engineeringUnit          String    @map("engineering_unit")
+  quality                  String
+  status                   String?
+  timestamp                DateTime  @db.Timestamptz(6)
+  source                   String?
+  ingestionTimestamp       DateTime? @map("ingestion_timestamp") @db.Timestamptz(6)
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant                 Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit                   MeasurementUnit   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  sensor                 Sensor            @relation(fields: [sensorId], references: [id], onDelete: Restrict)
+  canonicalTag           CanonicalTag      @relation(fields: [canonicalTagId], references: [id], onDelete: Restrict)
+  latestTelemetryReading TelemetryReading? @relation("LiveReadingLatestTelemetry", fields: [latestTelemetryReadingId], references: [id], onDelete: SetNull)
+
+  @@unique([unitId, sensorId, canonicalTagId], map: "live_readings_unit_sensor_tag_uk")
+  @@index([tenantId, unitId], map: "live_readings_tenant_unit_idx")
+  @@index([unitId], map: "live_readings_unit_idx")
+  @@index([sensorId], map: "live_readings_sensor_idx")
+  @@index([timestamp(sort: Desc)], map: "live_readings_time_idx")
+  @@map("live_readings")
+}
+
+/// Quarantine surface for telemetry drafts that did not enter
+/// telemetry_readings. Diagnostic, not canonical. Rows may be pruned by a
+/// later operational retention job (default guidance: 30 days).
+/// `reason` CHECK in ('late_outside_window','future_timestamp',
+///                    'unknown_source','unknown_mapping','disabled_mapping',
+///                    'unresolved_sensor','unresolved_tag','tenant_mismatch',
+///                    'invalid_quality','invalid_value','unit_mismatch',
+///                    'outside_envelope','conflict_dedup','inactive_context',
+///                    'mapping_engine_failure').
+/// `quality` CHECK (nullable) in ('good','uncertain','bad').
+/// `closed_job` and any other Jobs-specific reason are intentionally NOT in
+/// the CHECK; `inactive_context` is the neutral forward-looking placeholder.
+model TelemetryIngestionError {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String?   @map("tenant_id") @db.Uuid
+  integrationSourceId  String?   @map("integration_source_id") @db.Uuid
+  integrationMappingId String?   @map("integration_mapping_id") @db.Uuid
+  unitId               String?   @map("unit_id") @db.Uuid
+  sensorId             String?   @map("sensor_id") @db.Uuid
+  canonicalTagId       String?   @map("canonical_tag_id") @db.Uuid
+  externalIdentifier   String?   @map("external_identifier")
+  timestamp            DateTime? @db.Timestamptz(6)
+  ingestionTimestamp   DateTime  @default(now()) @map("ingestion_timestamp") @db.Timestamptz(6)
+  reason               String
+  reasonDetail         String?   @map("reason_detail")
+  quality              String?
+  engineeringUnit      String?   @map("engineering_unit")
+  value                Decimal?  @db.Decimal
+  rawPayload           Json?     @map("raw_payload")
+  metadata             Json?
+  correlationId        String?   @map("correlation_id")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant             Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  integrationSource  IntegrationSource?  @relation(fields: [integrationSourceId], references: [id], onDelete: SetNull)
+  integrationMapping IntegrationMapping? @relation(fields: [integrationMappingId], references: [id], onDelete: SetNull)
+  unit               MeasurementUnit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  sensor             Sensor?             @relation(fields: [sensorId], references: [id], onDelete: SetNull)
+  canonicalTag       CanonicalTag?       @relation(fields: [canonicalTagId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt(sort: Desc)], map: "telemetry_ingestion_errors_tenant_created_idx")
+  @@index([integrationSourceId, createdAt(sort: Desc)], map: "telemetry_ingestion_errors_source_created_idx")
+  @@index([reason, createdAt(sort: Desc)], map: "telemetry_ingestion_errors_reason_created_idx")
+  @@index([integrationSourceId, externalIdentifier], map: "telemetry_ingestion_errors_external_identifier_idx")
+  @@map("telemetry_ingestion_errors")
 }
 
 // =============================================================================
