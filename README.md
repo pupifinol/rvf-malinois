@@ -77,3 +77,6 @@ pnpm format       # Prettier
 
 This is **Phase F0 — Foundations**. No business features yet.
 See [`docs/product/roadmap.md`](./docs/product/roadmap.md) for the full plan.
+
+For the current F4 / F4.5 / F4.6 roadmap status and Docker runtime notes, see:
+[`docs/architecture/RVF_Malinois_DX_4_Roadmap_Update_Docker_Runtime_Note_v1.0.md`](./docs/architecture/RVF_Malinois_DX_4_Roadmap_Update_Docker_Runtime_Note_v1.0.md)
