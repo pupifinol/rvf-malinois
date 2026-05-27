@@ -6,9 +6,19 @@ import { SystemContext } from '../../common/caller-context';
 import { TelemetryIngestionService } from './telemetry-ingestion.service';
 
 import type { IngestTelemetryBatchInput } from './contracts/ingestion';
-import type { AlarmEvaluationService } from '../../alarms/alarm-evaluation.service';
+import type {
+  AlarmEvaluationResult,
+  AlarmEvaluationService,
+} from '../../alarms/alarm-evaluation.service';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { LiveReadingsProjectionService } from '../projection/live-readings-projection.service';
+import type {
+  PendingRealtimeEmit,
+  RealtimeEmitterService,
+} from '../../realtime/realtime-emitter.service';
+import type {
+  LiveReadingProjectionResult,
+  LiveReadingsProjectionService,
+} from '../projection/live-readings-projection.service';
 import type { IntegrationMapping, IntegrationSource } from '@prisma/client';
 
 /**
@@ -255,9 +265,12 @@ function makeMocks() {
   // The injected projection service is mocked so the ingestion service's
   // delegation is observable. F4.6B.1 isolation invariants carry forward:
   // the ingestion service must never call `prisma.liveReading.*` directly.
-  const projectionUpdate = vi.fn<(input: unknown, tx?: unknown) => Promise<{ outcome: string }>>(
-    () => Promise.resolve({ outcome: 'created' }),
-  );
+  // Return type uses the real `LiveReadingProjectionResult` discriminated
+  // union so per-outcome mocks (e.g. `{ outcome: 'created', liveReadingId }`,
+  // `{ outcome: 'skipped_stale' }`) typecheck without a cast.
+  const projectionUpdate = vi.fn<
+    (input: unknown, tx?: unknown) => Promise<LiveReadingProjectionResult>
+  >(() => Promise.resolve({ outcome: 'created', liveReadingId: 'lr-default' }));
   const projection = {
     updateFromAcceptedTelemetry: projectionUpdate,
   } as unknown as LiveReadingsProjectionService;
@@ -266,17 +279,28 @@ function makeMocks() {
   // service's delegation is observable. The ingestion service must never
   // call `prisma.alarmEvent.*` or `prisma.alarmRule.*` directly — the
   // evaluator owns every read and write against those tables.
-  const alarmsEvaluate = vi.fn<(input: unknown, tx?: unknown) => Promise<{ outcome: string }>>(() =>
-    Promise.resolve({ outcome: 'no_rule' }),
+  const alarmsEvaluate = vi.fn<(input: unknown, tx?: unknown) => Promise<AlarmEvaluationResult>>(
+    () => Promise.resolve({ outcome: 'no_rule' }),
   );
   const alarms = {
     evaluate: alarmsEvaluate,
   } as unknown as AlarmEvaluationService;
 
+  // F4.6E.1: the injected realtime emitter is mocked so the ingestion
+  // service's post-commit delegation is observable. The emitter is invoked
+  // only AFTER `prisma.$transaction` resolves successfully; tests assert
+  // both halves of the invariant (called on success; NOT called on
+  // rollback / duplicate / conflict / rejected paths).
+  const realtimeEmitMany = vi.fn<(events: readonly PendingRealtimeEmit[]) => void>();
+  const realtime = {
+    emitMany: realtimeEmitMany,
+  } as unknown as RealtimeEmitterService;
+
   return {
     prisma,
     projection,
     alarms,
+    realtime,
     mocks: {
       integrationSourceFindUnique,
       integrationMappingFindUnique,
@@ -296,6 +320,7 @@ function makeMocks() {
       prismaTransaction,
       projectionUpdate,
       alarmsEvaluate,
+      realtimeEmitMany,
     },
   };
 }
@@ -316,6 +341,7 @@ describe('TelemetryIngestionService.ingestBatch', () => {
   let prisma: PrismaService;
   let projection: LiveReadingsProjectionService;
   let alarms: AlarmEvaluationService;
+  let realtime: RealtimeEmitterService;
   let mocks: ReturnType<typeof makeMocks>['mocks'];
   let service: TelemetryIngestionService;
 
@@ -324,8 +350,9 @@ describe('TelemetryIngestionService.ingestBatch', () => {
     prisma = made.prisma;
     projection = made.projection;
     alarms = made.alarms;
+    realtime = made.realtime;
     mocks = made.mocks;
-    service = new TelemetryIngestionService(prisma, projection, alarms);
+    service = new TelemetryIngestionService(prisma, projection, alarms, realtime);
   });
 
   // --- 1. Happy path ------------------------------------------------------
@@ -1055,5 +1082,277 @@ describe('TelemetryIngestionService.ingestBatch', () => {
     expect(mocks.telemetryReadingCreate).toHaveBeenCalledTimes(1);
     expect(mocks.projectionUpdate).toHaveBeenCalledTimes(1);
     expect(mocks.alarmsEvaluate).toHaveBeenCalledTimes(1);
+  });
+
+  // =========================================================================
+  // F4.6E.1 — realtime fan-out integration tests
+  // =========================================================================
+
+  // --- 40. accepted-good → emitter invoked with telemetry + projection events
+  it('40. F4.6E.1: accepted good sample (projection created, no alarm) emits telemetry.reading.accepted + live_reading.updated', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.projectionUpdate.mockResolvedValueOnce({ outcome: 'created', liveReadingId: 'lr-1' });
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.acceptedCount).toBe(1);
+    expect(mocks.realtimeEmitMany).toHaveBeenCalledTimes(1);
+    const events = mocks.realtimeEmitMany.mock.calls[0]?.[0] ?? [];
+    expect(events.map((e) => e.kind)).toEqual([
+      'telemetry.reading.accepted',
+      'live_reading.updated',
+    ]);
+    expect(events[0]?.payload).toMatchObject({
+      telemetryReadingId: READING_ID,
+      tenantId: TENANT_ID,
+      unitId: UNIT_ID,
+      sensorId: SENSOR_ID,
+      canonicalTagId: CANONICAL_TAG_ID,
+      quality: 'good',
+      source: 'manual',
+    });
+    expect(events[1]?.payload).toMatchObject({
+      liveReadingId: 'lr-1',
+      outcome: 'created',
+    });
+  });
+
+  // --- 41. accepted-good + alarm triggered → adds alarm.event.created --
+  it('41. F4.6E.1: accepted good + projection updated + alarm triggered → all three event kinds emitted', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.projectionUpdate.mockResolvedValueOnce({ outcome: 'updated' });
+    mocks.alarmsEvaluate.mockResolvedValueOnce({
+      outcome: 'evaluated',
+      perRule: [
+        {
+          ruleId: 'rule-warn',
+          severity: 'warning',
+          status: 'triggered',
+          alarmEventId: 'ae-1',
+          thresholdViolated: 'high',
+        },
+        {
+          ruleId: 'rule-crit',
+          severity: 'critical',
+          status: 'triggered',
+          alarmEventId: 'ae-2',
+          thresholdViolated: 'high_high',
+        },
+      ],
+    });
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(mocks.realtimeEmitMany).toHaveBeenCalledTimes(1);
+    const events = mocks.realtimeEmitMany.mock.calls[0]?.[0] ?? [];
+    expect(events.map((e) => e.kind)).toEqual([
+      'telemetry.reading.accepted',
+      'live_reading.updated',
+      'alarm.event.created',
+      'alarm.event.created',
+    ]);
+    // live_reading.updated carries liveReadingId=null for outcome='updated'
+    expect(events[1]?.payload).toMatchObject({ liveReadingId: null, outcome: 'updated' });
+    // alarm events carry the resolved ids and severities
+    expect(events[2]?.payload).toMatchObject({
+      alarmEventId: 'ae-1',
+      severity: 'warning',
+      thresholdViolated: 'high',
+      state: 'active',
+    });
+    expect(events[3]?.payload).toMatchObject({
+      alarmEventId: 'ae-2',
+      severity: 'critical',
+      thresholdViolated: 'high_high',
+      state: 'active',
+    });
+  });
+
+  // --- 42. quality=bad → no live_reading.updated, no alarm event ------
+  it("42. F4.6E.1: quality='bad' emits telemetry.reading.accepted only (no projection event, no alarm event)", async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+
+    await service.ingestBatch(
+      SystemContext,
+      batchFixture({ samples: [sampleFixture({ quality: 'bad' })] }),
+      NOW,
+    );
+
+    expect(mocks.realtimeEmitMany).toHaveBeenCalledTimes(1);
+    const events = mocks.realtimeEmitMany.mock.calls[0]?.[0] ?? [];
+    expect(events.map((e) => e.kind)).toEqual(['telemetry.reading.accepted']);
+    expect(events[0]?.payload).toMatchObject({ quality: 'bad' });
+  });
+
+  // --- 43. projection skipped → no live_reading.updated ----------------
+  it('43. F4.6E.1: projection skipped_stale → telemetry.reading.accepted emitted, NO live_reading.updated', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.projectionUpdate.mockResolvedValueOnce({ outcome: 'skipped_stale' });
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(mocks.realtimeEmitMany).toHaveBeenCalledTimes(1);
+    const events = mocks.realtimeEmitMany.mock.calls[0]?.[0] ?? [];
+    expect(events.map((e) => e.kind)).toEqual(['telemetry.reading.accepted']);
+  });
+
+  // --- 44. alarm skipped_duplicate_active → no alarm.event.created -----
+  it('44. F4.6E.1: alarm per-rule outcomes other than triggered (skipped_duplicate_active / no_threshold_violated) do NOT emit alarm.event.created', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.projectionUpdate.mockResolvedValueOnce({ outcome: 'created', liveReadingId: 'lr-1' });
+    mocks.alarmsEvaluate.mockResolvedValueOnce({
+      outcome: 'evaluated',
+      perRule: [
+        {
+          ruleId: 'rule-warn',
+          severity: 'warning',
+          status: 'no_threshold_violated',
+        },
+        {
+          ruleId: 'rule-crit',
+          severity: 'critical',
+          status: 'skipped_duplicate_active',
+          existingAlarmEventId: 'ae-existing',
+        },
+      ],
+    });
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    const events = mocks.realtimeEmitMany.mock.calls[0]?.[0] ?? [];
+    expect(events.map((e) => e.kind)).toEqual([
+      'telemetry.reading.accepted',
+      'live_reading.updated',
+    ]);
+  });
+
+  // --- 45. unknown_source → emitter NOT invoked at all ------------------
+  it('45. F4.6E.1: rejected_quarantined (unknown_source) does NOT invoke the emitter — descriptors never collected', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(null);
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(mocks.realtimeEmitMany).not.toHaveBeenCalled();
+  });
+
+  // --- 46. unknown_mapping → emitter NOT invoked ------------------------
+  it('46. F4.6E.1: rejected_quarantined (unknown_mapping) does NOT invoke the emitter', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(null);
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(mocks.realtimeEmitMany).not.toHaveBeenCalled();
+  });
+
+  // --- 47. duplicate (P2002 + identical) → emitter NOT invoked ---------
+  it('47. F4.6E.1: duplicate (P2002 + identical) does NOT invoke the emitter — transaction threw and rolled back', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockRejectedValueOnce(p2002('telemetry_readings_dedup_seq_uk'));
+    mocks.telemetryReadingFindFirst.mockResolvedValueOnce({
+      id: READING_ID,
+      value: new Prisma.Decimal('4123.4'),
+      engineeringUnit: 'psi',
+      quality: 'good',
+      source: 'manual',
+      timestamp: new Date(RECENT_TS),
+    });
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.duplicateCount).toBe(1);
+    expect(mocks.realtimeEmitMany).not.toHaveBeenCalled();
+  });
+
+  // --- 48. conflict_quarantined → emitter NOT invoked ------------------
+  it('48. F4.6E.1: conflict_quarantined (P2002 + different value) does NOT invoke the emitter', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockRejectedValueOnce(p2002('telemetry_readings_dedup_seq_uk'));
+    mocks.telemetryReadingFindFirst.mockResolvedValueOnce({
+      id: READING_ID,
+      value: new Prisma.Decimal('4000.0'),
+      engineeringUnit: 'psi',
+      quality: 'good',
+      source: 'manual',
+      timestamp: new Date(RECENT_TS),
+    });
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.conflictQuarantinedCount).toBe(1);
+    expect(mocks.realtimeEmitMany).not.toHaveBeenCalled();
+  });
+
+  // --- 49. projection rollback → emitter NOT invoked -------------------
+  it('49. F4.6E.1: projection throw rolls back the transaction → emitter NOT invoked', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.projectionUpdate.mockRejectedValueOnce(
+      new Error('projection update failed: simulated DB error'),
+    );
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.rejectedQuarantinedCount).toBe(1);
+    expect(result.results[0]?.reason).toBe('mapping_engine_failure');
+    expect(mocks.realtimeEmitMany).not.toHaveBeenCalled();
+  });
+
+  // --- 50. alarm evaluator rollback → emitter NOT invoked -------------
+  it('50. F4.6E.1: alarm evaluator throw rolls back the transaction → emitter NOT invoked', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+    mocks.alarmsEvaluate.mockRejectedValueOnce(
+      new Error('alarm evaluator failed: simulated DB error'),
+    );
+
+    const result = await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    expect(result.rejectedQuarantinedCount).toBe(1);
+    expect(result.results[0]?.reason).toBe('mapping_engine_failure');
+    expect(mocks.realtimeEmitMany).not.toHaveBeenCalled();
+  });
+
+  // --- 51. emit-after-commit order ------------------------------------
+  it('51. F4.6E.1: emitter is invoked AFTER $transaction resolves (call order: transaction → emit)', async () => {
+    mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
+    mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
+    mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
+
+    const callOrder: string[] = [];
+    mocks.prismaTransaction.mockImplementationOnce(async (cb) => {
+      callOrder.push('transaction_start');
+      // The vi.fn signature already accepts a callback whose tx parameter is
+      // Prisma.TransactionClient; the prisma object passed in is shape-
+      // compatible (the same mocked prismaShape backs both PrismaService and
+      // the tx parameter in this spec — see makeMocks).
+      const result = await cb(prisma);
+      callOrder.push('transaction_resolved');
+      return result;
+    });
+    mocks.realtimeEmitMany.mockImplementationOnce(() => {
+      callOrder.push('realtime_emit');
+    });
+
+    await service.ingestBatch(SystemContext, batchFixture(), NOW);
+
+    // Critical invariant: the emit happens AFTER the transaction resolved,
+    // never inside the transaction callback. Subscribers cannot see a ghost
+    // event for a row that did not commit.
+    expect(callOrder).toEqual(['transaction_start', 'transaction_resolved', 'realtime_emit']);
   });
 });

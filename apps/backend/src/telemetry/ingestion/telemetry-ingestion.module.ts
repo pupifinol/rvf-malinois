@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AlarmEvaluationService } from '../../alarms/alarm-evaluation.service';
+import { RealtimeModule } from '../../realtime/realtime.module';
 import { LiveReadingsProjectionService } from '../projection/live-readings-projection.service';
 
 import { TelemetryIngestionController } from './telemetry-ingestion.controller';
@@ -43,6 +44,7 @@ import { TelemetryIngestionService } from './telemetry-ingestion.service';
  * that wiring belongs to the phase that owns the concern (F4.6B-0 §14).
  */
 @Module({
+  imports: [RealtimeModule],
   controllers: [TelemetryIngestionController],
   providers: [TelemetryIngestionService, LiveReadingsProjectionService, AlarmEvaluationService],
   exports: [TelemetryIngestionService],

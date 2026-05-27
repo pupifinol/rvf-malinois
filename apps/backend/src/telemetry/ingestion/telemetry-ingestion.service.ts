@@ -5,6 +5,10 @@ import { Prisma } from '@prisma/client';
 
 import { AlarmEvaluationService } from '../../alarms/alarm-evaluation.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  RealtimeEmitterService,
+  type PendingRealtimeEmit,
+} from '../../realtime/realtime-emitter.service';
 import { LiveReadingsProjectionService } from '../projection/live-readings-projection.service';
 
 import {
@@ -50,7 +54,12 @@ import type { IntegrationMapping, IntegrationSource } from '@prisma/client';
  *   - **No `alarm_events` mutation.** Delegated to `AlarmEvaluationService`
  *     (F4.6D.1). The ingestion service never calls `prisma.alarmEvent.*`
  *     directly.
- *   - **No realtime / WebSocket / SSE emission.** Owned by F4.6E.
+ *   - **No direct WebSocket / Socket.IO emission.** Delegated to
+ *     `RealtimeEmitterService` (F4.6E.1). The ingestion service collects
+ *     in-memory emit descriptors inside the `prisma.$transaction` callback
+ *     and hands them to the emitter ONLY AFTER the transaction has
+ *     successfully committed. On rollback / duplicate / conflict / rejected
+ *     paths the descriptors are discarded and no emission happens.
  *   - **No external bridge (MQTT / Modbus / OPC-UA / ThingsBoard / Node-RED /
  *     PLC / edge-gateway / historian) wiring.** Each future bridge is its own
  *     phase, with its own ADR if needed.
@@ -77,6 +86,7 @@ export class TelemetryIngestionService {
     private readonly prisma: PrismaService,
     private readonly projection: LiveReadingsProjectionService,
     private readonly alarms: AlarmEvaluationService,
+    private readonly realtime: RealtimeEmitterService,
   ) {}
 
   /**
@@ -427,6 +437,14 @@ export class TelemetryIngestionService {
     const valueDecimal = new Prisma.Decimal(valueStr);
     const ingestionTimestamp = now;
 
+    // F4.6E.1 — pending fan-out emit descriptors collected INSIDE the
+    // transaction callback as the projection / alarm steps return their
+    // outcomes, and handed to `RealtimeEmitterService.emitMany` ONLY AFTER
+    // `prisma.$transaction` resolves successfully. On any throw out of the
+    // callback (rollback, P2002 dedup, unexpected) this array is discarded
+    // and no emission ever happens — per F4.6E-0 §10.
+    const pendingEmits: PendingRealtimeEmit[] = [];
+
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         const row = await tx.telemetryReading.create({
@@ -448,8 +466,28 @@ export class TelemetryIngestionService {
           select: { id: true },
         });
 
+        // F4.6E.1 — collect the canonical-insert fan-out descriptor. Emitted
+        // for every accepted sample regardless of quality (subscribers may
+        // care about uncertain / bad telemetry hits).
+        pendingEmits.push({
+          kind: 'telemetry.reading.accepted',
+          payload: {
+            telemetryReadingId: row.id,
+            tenantId,
+            unitId: mapping.unitId,
+            sensorId,
+            canonicalTagId,
+            value: valueStr,
+            engineeringUnit: sample.engineeringUnit,
+            quality: sample.quality,
+            timestamp: sampleTs.toISOString(),
+            source: source.kind,
+            sequence: sequenceBig !== null ? sequenceBig.toString() : null,
+          },
+        });
+
         if (sample.quality === 'good') {
-          await this.projection.updateFromAcceptedTelemetry(
+          const projectionOutcome = await this.projection.updateFromAcceptedTelemetry(
             {
               telemetryReadingId: row.id,
               tenantId,
@@ -466,11 +504,35 @@ export class TelemetryIngestionService {
             tx,
           );
 
+          // F4.6E.1 — collect the live_reading.updated descriptor ONLY for
+          // outcomes that actually wrote to the projection (created /
+          // updated). The skipped_* outcomes do not produce a fan-out event.
+          if (projectionOutcome.outcome === 'created' || projectionOutcome.outcome === 'updated') {
+            pendingEmits.push({
+              kind: 'live_reading.updated',
+              payload: {
+                liveReadingId:
+                  projectionOutcome.outcome === 'created' ? projectionOutcome.liveReadingId : null,
+                tenantId,
+                unitId: mapping.unitId,
+                sensorId,
+                canonicalTagId,
+                value: valueStr,
+                engineeringUnit: sample.engineeringUnit,
+                quality: 'good',
+                timestamp: sampleTs.toISOString(),
+                source: source.kind,
+                ingestionTimestamp: ingestionTimestamp.toISOString(),
+                outcome: projectionOutcome.outcome,
+              },
+            });
+          }
+
           // F4.6D.1: alarm evaluation runs after the projection upsert, inside
           // the same per-sample transaction. The evaluator owns every read
           // and write against `alarm_rules` / `alarm_events`; the ingestion
           // service never touches those tables directly.
-          await this.alarms.evaluate(
+          const alarmResult = await this.alarms.evaluate(
             {
               telemetryReadingId: row.id,
               tenantId,
@@ -485,16 +547,53 @@ export class TelemetryIngestionService {
             },
             tx,
           );
+
+          // F4.6E.1 — collect one alarm.event.created descriptor per
+          // matched-and-triggered rule. Skipped per-rule outcomes
+          // (`no_threshold_violated`, `skipped_duplicate_active`) do not
+          // produce a fan-out event.
+          if (alarmResult.outcome === 'evaluated') {
+            for (const perRule of alarmResult.perRule) {
+              if (perRule.status === 'triggered') {
+                pendingEmits.push({
+                  kind: 'alarm.event.created',
+                  payload: {
+                    alarmEventId: perRule.alarmEventId,
+                    tenantId,
+                    unitId: mapping.unitId,
+                    canonicalTagId,
+                    alarmRuleId: perRule.ruleId,
+                    severity: perRule.severity,
+                    triggeredValue: valueStr,
+                    thresholdViolated: perRule.thresholdViolated,
+                    state: 'active',
+                    firstTriggeredAt: sampleTs.toISOString(),
+                  },
+                });
+              }
+            }
+          }
         }
 
         return row;
       });
+
+      // F4.6E.1 — past this line, the transaction has committed. Fan out.
+      // `emitMany` is best-effort: per-event try/catch inside; it never
+      // throws out, so a failed emit cannot change the ingestion outcome
+      // the caller already observed in `pendingEmits.length`.
+      this.realtime.emitMany(pendingEmits);
+
       return {
         sampleIndex,
         outcome: 'accepted',
         telemetryReadingId: created.id,
       };
     } catch (err) {
+      // pendingEmits is intentionally discarded here — the transaction
+      // rolled back (no canonical row, no projection update, no alarm
+      // event committed). Emitting against it would publish a ghost event
+      // for state that does not exist.
       if (!isUniqueViolation(err)) {
         throw err;
       }
