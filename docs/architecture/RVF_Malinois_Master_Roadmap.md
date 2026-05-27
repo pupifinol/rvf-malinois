@@ -2,7 +2,7 @@
 
 > Top-level navigation roadmap and project-status document for RVF Malinois.
 > Documentation-only artifact. Maintained alongside phase closeouts; updated when a phase closes, an ADR lands, scope changes, or the execution order shifts.
-> Last known head at authoring time: commit `04dadc4` (DX-4 — Roadmap Update + Docker Runtime Note). Previously anchored at `1495457` (F4.6B.1).
+> Last known head at authoring time: commit `901cd22` (F4.6D-0 — Alarm Evaluation Boundary Plan). Previously anchored at `04dadc4` (DX-4) and `1495457` (F4.6B.1).
 
 ## 1. Purpose
 
@@ -30,7 +30,7 @@ RVF Malinois is being built as **its own canonical platform**. The decision-of-r
 | Telemetry historical record | `telemetry_readings` — canonical, append-only |
 | Telemetry ingestion boundary | RVF-owned; `POST /api/v1/telemetry/ingest` guarded by `RVF_INGEST_ENABLED` (F4.6B.1 in commit `1495457`) |
 | Live projection | `live_readings` populated by the ingestion boundary inside the canonical insert transaction, quality-gated to `good`, watermark-gated by `timestamp` (F4.6C.1 in commit `49a8349`) |
-| Alarm evaluation | Deferred to F4.6D |
+| Alarm evaluation | Planned — F4.6D-0 plan closed (commit `901cd22`); implementation deferred to F4.6D.1 |
 | WebSocket / SSE fan-out | Deferred to F4.6E |
 | External protocol bridges (MQTT / Modbus / OPC-UA / ThingsBoard / Node-RED / PLC / edge / historian) | Deferred — each future phase, possibly its own ADR; **none introduced yet** |
 
@@ -69,8 +69,8 @@ After F4.6C.1, the platform has both a controlled write path into canonical tele
 | **F4.6C-0** | Live Readings Projection Updater Plan | Closed | Plan | `docs/architecture/RVF_Malinois_F4_6C_Live_Readings_Projection_Updater_Plan.md` | `f126c5c` (Add F4.6C live readings projection plan) | Plan first per project pattern. |
 | **F4.6C.1** | Live Readings Projection Updater Implementation | Closed | Runtime | `apps/backend/src/telemetry/projection/live-readings-projection.service.ts` + wired into `TelemetryIngestionService` inside `prisma.$transaction` | `49a8349` (Add F4.6C live readings projection updater) | First backend collaborator authorized to write `prisma.liveReading.*`. Quality-gated to `good`; watermark-gated by `timestamp`. Backend tests 111/111. No new quarantine reasons. |
 | **DX-4** | Roadmap Update + Docker Runtime Note | Closed | Docs | `docs/architecture/RVF_Malinois_DX_4_Roadmap_Update_Docker_Runtime_Note_v1.0.md` + README pointer | `04dadc4` (Add DX-4 roadmap update and Docker runtime note) | Developer-experience checkpoint after F4.6C.1. Documents Docker runtime, `/health` liveness contract, troubleshooting runbook, and confirms F4.6D as next implementation phase. |
-| **F4.6D-0** | Alarm Evaluation Boundary Plan | **Next** | Plan | TBD | — | Owns operational-context-lookup design. |
-| **F4.6D.1** | Alarm Evaluation Implementation | Deferred | Runtime | Backend alarm evaluator writing `alarm_events` | — | Browser does not evaluate. |
+| **F4.6D-0** | Alarm Evaluation Boundary Plan | Closed | Plan | `docs/architecture/RVF_Malinois_F4_6D_Alarm_Evaluation_Boundary_Plan.md` | `901cd22` (Add F4.6D-0 alarm evaluation boundary plan) | Locks scope, semantics, persistence decision (option B — write `alarm_events` with `state='active'`, no lifecycle), internal-only API decision, ~15–20 planned test cases, and acceptance criteria for F4.6D.1. Recommends a minimal no-duplicate-active guard; lifecycle / dedup / notifications all deferred. |
+| **F4.6D.1** | Alarm Evaluation Boundary Implementation | **Next** | Runtime | `apps/backend/src/alarms/alarm-evaluation.service.ts` (or sibling under `telemetry/`) + ingestion-transaction wiring + first writes to `alarm_events` | — | First backend collaborator authorized to write `prisma.alarmEvent.*`. Plan-first deliverable; scope per F4.6D-0 §6 / §10 / §14. Browser does not evaluate. |
 | **F4.6E-0** | WebSocket / SSE Fan-out Plan | Deferred | Plan | TBD | — | Downstream-only, never source of truth. |
 | **F4.6E.1** | WebSocket / SSE Fan-out Implementation | Deferred | Runtime | Per-tenant / per-unit channels in `RealtimeModule` | — | Recovery via REST reconnect; not a replay buffer. |
 | **F4.6F-0** | Historical Trend API / Operations Trend Support Plan | Deferred | Plan | TBD | — | Builds on `telemetry_readings` populated by F4.6B+. |
@@ -95,7 +95,7 @@ The following decisions currently govern the project. Each links back to its sou
 11. **F4.6B.1 does not update `live_readings` yet.** Verified by isolation test #17. F4.6C is the dedicated phase that owns the upsert.
 12. **Alarm evaluation, WebSocket / SSE fan-out, and external protocol integrations remain deferred.** Each has its own future phase; nothing is built ahead of its dedicated review.
 
-## 5. Current Implemented Capabilities (as of `04dadc4`)
+## 5. Current Implemented Capabilities (as of `901cd22`)
 
 What exists today, end-to-end:
 
@@ -146,27 +146,30 @@ What is **not** yet built; deferred to its dedicated phase:
 
 ## 7. Recommended Execution Order
 
-Already closed since the previous revision of this roadmap (commit `1495457`): DX-1 (`b19e77a`), DX-2 (`e3ccb52`), DX-3 (`65cb736`), F4.6C-0 (`f126c5c`), F4.6C.1 (`49a8349`), DX-4 (`04dadc4`).
+Already closed since the previous revision of this roadmap (commit `1495457`): DX-1 (`b19e77a`), DX-2 (`e3ccb52`), DX-3 (`65cb736`), F4.6C-0 (`f126c5c`), F4.6C.1 (`49a8349`), DX-4 (`04dadc4`), F4.6D-0 (`901cd22`).
 
 The recommended order from here:
 
-1. **F4.6D-0 — Alarm Evaluation Boundary Plan.** Operational-context lookup design (which `CommissioningSnapshot` applies?). Threshold-resolution and lifecycle-transition rules. Plan-first per the DX-3 pattern.
-2. **F4.6D.1 — Alarm Evaluation Implementation.** Backend evaluator writing `alarm_events` lifecycle. Browser still does not evaluate; F2 frontend evaluator switches data source to persisted events here.
-3. **F4.6E-0 — WebSocket / SSE Fan-out Plan.** Channel topology, payload shape, throttle policy. Downstream-only.
-4. **F4.6E.1 — WebSocket / SSE Fan-out Implementation.** Per-tenant / per-unit emit after transaction commits. REST reconnect remains the recovery path.
-5. **F4.6F-0 — Historical Trend API Plan.** Bucketing / downsampling / multi-tag read decisions. UI cutover plan for Operations charts off the F2 simulator.
-6. **F4.6F.1 — Historical Trend API Implementation.** Endpoint extensions and the Operations chart screen migration.
-7. **F4.5G — Resume UI adapter wiring** (Wells, Equipment, Catalog, …). May also proceed in parallel with F4.6D+ for non-telemetry screens.
+1. **F4.6D.1 — Alarm Evaluation Boundary Implementation.** Backend evaluator writing `alarm_events`. Scope, semantics, persistence, API, and acceptance all locked by F4.6D-0 (`901cd22`). First backend collaborator authorized to write `prisma.alarmEvent.*`; wired inside the existing `prisma.$transaction` from F4.6C.1. Browser still does not evaluate.
+2. **F4.6E-0 — WebSocket / SSE Fan-out Plan.** Channel topology, payload shape, throttle policy. Downstream-only.
+3. **F4.6E.1 — WebSocket / SSE Fan-out Implementation.** Per-tenant / per-unit emit after transaction commits. REST reconnect remains the recovery path.
+4. **F4.6F-0 — Historical Trend API Plan.** Bucketing / downsampling / multi-tag read decisions. UI cutover plan for Operations charts off the F2 simulator.
+5. **F4.6F.1 — Historical Trend API Implementation.** Endpoint extensions and the Operations chart screen migration.
+6. **F4.5G — Resume UI adapter wiring** (Wells, Equipment, Catalog, …). May also proceed in parallel with F4.6D.1+ for non-telemetry screens.
 
-**Why F4.6D is next:**
+**Why F4.6D.1 is next:**
 
+- **F4.6D-0 is closed** (`901cd22`). The plan locks every decision the implementation has to make: evaluation semantics (§9), persistence (§10 — option B, write `alarm_events` with `state='active'`, no lifecycle), API surface (§11 — internal / service-level), and acceptance criteria (§14). F4.6D.1 implements the plan; it does not redesign.
 - **F4.6C.1 closed the canonical-write side** end-to-end: ingestion accepts samples, persists to `telemetry_readings`, updates `live_readings` inside the same transaction. Alarms are the next behavioral concern downstream of accepted readings.
-- **DX-3 (Definition of Done) is now in force** and the F4.6B.1 / F4.6C.1 closeouts established the test-isolation pattern (no `alarm_events`, no realtime emit, no Jobs). F4.6D inherits that contract.
-- **Sequencing F4.6D before F4.6E** keeps the realtime fan-out plan downstream of a stable alarm-event producer — otherwise the channel topology and payload shape would have to be revisited once alarms exist.
+- **DX-3 (Definition of Done) is in force** and the F4.6B.1 / F4.6C.1 closeouts established the test-isolation pattern (no `alarm_events`, no realtime emit, no Jobs). F4.6D.1 inherits that contract — and refines the "ingestion never calls `prisma.alarmEvent.*` directly" isolation invariant into "ingestion delegates to `AlarmEvaluationService`," exactly the way F4.6C.1 refined the live-readings invariant.
+- **Sequencing F4.6D.1 before F4.6E** keeps the realtime fan-out plan downstream of a stable alarm-event producer — otherwise the channel topology and payload shape would have to be revisited once alarms exist.
 
-Candidate follow-ups not in the main sequence (drafted as the live-readings read API is needed):
+Candidate follow-ups not in the main sequence (named so they have a place to land):
 
 - **Candidate F4.6C.2 — Latest-value read API.** Public `GET /api/v1/telemetry/latest` (or equivalent) over the now-populated `live_readings`. Shape decided when a screen migration requires it.
+- **Candidate F4.6D.2 — Alarm Events Read API.** Public read surface over `alarm_events` once F4.6D.1 has populated it. Sized to the first frontend consumer.
+- **Candidate F4.6D.3 — Alarm Lifecycle.** `active → acknowledged → cleared` transitions, dedup against open events, `audit_logs` writes per ADR-005.
+- **Candidate F4.6D.4 — Stateful Threshold Semantics.** Deadband / debounce (`delay_seconds`) / rate-of-change enforcement; populates the reserved `alarm_thresholds` table.
 
 Parallel work allowed at any time without unblocking the main track:
 
@@ -284,4 +287,4 @@ Phase plans (`*_Plan.md`) typically do **not** need to update this roadmap unles
 
 ---
 
-*Master Roadmap, last refreshed at HEAD `04dadc4` (DX-4 — Roadmap Update + Docker Runtime Note). Originally authored at HEAD `1495457` (F4.6B.1). Update on every phase close.*
+*Master Roadmap, last refreshed at HEAD `901cd22` (F4.6D-0 — Alarm Evaluation Boundary Plan). Previous refresh anchor `04dadc4` (DX-4). Originally authored at HEAD `1495457` (F4.6B.1). Update on every phase close.*
