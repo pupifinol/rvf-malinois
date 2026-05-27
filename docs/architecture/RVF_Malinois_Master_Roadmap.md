@@ -2,7 +2,7 @@
 
 > Top-level navigation roadmap and project-status document for RVF Malinois.
 > Documentation-only artifact. Maintained alongside phase closeouts; updated when a phase closes, an ADR lands, scope changes, or the execution order shifts.
-> Last known head at authoring time: commit `1495457` (F4.6B.1 — Telemetry Ingestion Boundary Skeleton).
+> Last known head at authoring time: commit `04dadc4` (DX-4 — Roadmap Update + Docker Runtime Note). Previously anchored at `1495457` (F4.6B.1).
 
 ## 1. Purpose
 
@@ -29,12 +29,12 @@ RVF Malinois is being built as **its own canonical platform**. The decision-of-r
 | Read API (`/api/v1/{tenants,wells,tags,equipment,jobs,telemetry/trends}`) | Active on the F4 Prisma client (F4.4 reactivation closeout in commit `e6b40b6`) |
 | Telemetry historical record | `telemetry_readings` — canonical, append-only |
 | Telemetry ingestion boundary | RVF-owned; `POST /api/v1/telemetry/ingest` guarded by `RVF_INGEST_ENABLED` (F4.6B.1 in commit `1495457`) |
-| Live projection | `live_readings` table exists (F4.6A.1); **not populated yet** (F4.6C will own) |
+| Live projection | `live_readings` populated by the ingestion boundary inside the canonical insert transaction, quality-gated to `good`, watermark-gated by `timestamp` (F4.6C.1 in commit `49a8349`) |
 | Alarm evaluation | Deferred to F4.6D |
 | WebSocket / SSE fan-out | Deferred to F4.6E |
 | External protocol bridges (MQTT / Modbus / OPC-UA / ThingsBoard / Node-RED / PLC / edge / historian) | Deferred — each future phase, possibly its own ADR; **none introduced yet** |
 
-After F4.6B.1, the platform has a controlled write path into canonical telemetry for the first time. Behavioral side effects (live projection, alarms, realtime fan-out) remain firmly in their own future phases.
+After F4.6C.1, the platform has both a controlled write path into canonical telemetry **and** a transactionally-consistent latest-value projection. Behavioral side effects further downstream (alarm evaluation, realtime fan-out, historical-trend extensions) remain firmly in their own future phases.
 
 ## 3. Phase Status Table
 
@@ -63,12 +63,13 @@ After F4.6B.1, the platform has a controlled write path into canonical telemetry
 | **F4.6A.1** | Prisma Schema + Migration Implementation | Closed | Prisma + migration | `apps/backend/prisma/migrations/20260526000000_f4_6a_telemetry_hardening/` + schema additions | `6be7842` (Add F4.6A telemetry schema hardening migration) | `integration_source_id` column + 2 partial unique dedup indexes + `telemetry_ingestion_errors` + `live_readings` tables. VIEW preserved. |
 | **F4.6B-0** | Ingestion Boundary Interface Plan | Closed | Plan | `docs/architecture/RVF_Malinois_F4_6B_Ingestion_Boundary_Plan.md` | `c4ea18a` (Add F4.6B ingestion boundary plan) | Locked service / wire / env-flag / resolution / dedup / hooks-prohibition before code. |
 | **F4.6B.1** | Telemetry Ingestion Boundary Runtime Skeleton | Closed | Runtime + tests | `apps/backend/src/telemetry/ingestion/` (module + service + controller + contracts + 22 spec tests) + minimal `app.module.ts` edit | `1495457` (Add F4.6B telemetry ingestion boundary skeleton) | First runtime in the F4.6 arc. Backend tests 91/91. Gated by `RVF_INGEST_ENABLED`. |
-| **DX-1** | Master Roadmap | **Current** | Docs | This document | (pending commit) | Top-level navigation. |
-| **DX-2** | Local DB Migration Validation Procedure | Next | Docs | Standardized procedure for `prisma migrate dev` + reverse-SQL validation against a local Postgres | — | Should land before further DB-dependent runtime work. |
-| **DX-3** | Definition of Done | Next | Docs | Per-phase-type DoD checklist (plan / migration / runtime / docs-only) | — | Should land before further runtime phases. |
-| **F4.6C-0** | Live Readings Projection Updater Plan | Upcoming | Plan | `docs/architecture/RVF_Malinois_F4_6C_Live_Readings_Plan.md` (TBD) | — | Plan first per project pattern. |
-| **F4.6C.1** | Live Readings Projection Updater Implementation | Upcoming | Runtime | Projection-upsert hook in ingestion boundary + candidate `GET /telemetry/latest` | — | First write to `live_readings`. |
-| **F4.6D-0** | Alarm Evaluation Boundary Plan | Deferred | Plan | TBD | — | Owns operational-context-lookup design. |
+| **DX-1** | Master Roadmap | Closed | Docs | This document | `b19e77a` (Add RVF Malinois master roadmap) | Top-level navigation. |
+| **DX-2** | Local DB Migration Validation Procedure | Closed | Docs | `docs/operations/RVF_Malinois_Local_DB_Migration_Validation_Procedure.md` | `e3ccb52` (Add local DB migration validation procedure) | Landed before F4.6C per plan. |
+| **DX-3** | Definition of Done | Closed | Docs | `docs/operations/RVF_Malinois_Definition_of_Done.md` | `65cb736` (Add RVF Malinois definition of done) | Per-phase-type DoD checklist (plan / migration / runtime / docs-only). |
+| **F4.6C-0** | Live Readings Projection Updater Plan | Closed | Plan | `docs/architecture/RVF_Malinois_F4_6C_Live_Readings_Projection_Updater_Plan.md` | `f126c5c` (Add F4.6C live readings projection plan) | Plan first per project pattern. |
+| **F4.6C.1** | Live Readings Projection Updater Implementation | Closed | Runtime | `apps/backend/src/telemetry/projection/live-readings-projection.service.ts` + wired into `TelemetryIngestionService` inside `prisma.$transaction` | `49a8349` (Add F4.6C live readings projection updater) | First backend collaborator authorized to write `prisma.liveReading.*`. Quality-gated to `good`; watermark-gated by `timestamp`. Backend tests 111/111. No new quarantine reasons. |
+| **DX-4** | Roadmap Update + Docker Runtime Note | Closed | Docs | `docs/architecture/RVF_Malinois_DX_4_Roadmap_Update_Docker_Runtime_Note_v1.0.md` + README pointer | `04dadc4` (Add DX-4 roadmap update and Docker runtime note) | Developer-experience checkpoint after F4.6C.1. Documents Docker runtime, `/health` liveness contract, troubleshooting runbook, and confirms F4.6D as next implementation phase. |
+| **F4.6D-0** | Alarm Evaluation Boundary Plan | **Next** | Plan | TBD | — | Owns operational-context-lookup design. |
 | **F4.6D.1** | Alarm Evaluation Implementation | Deferred | Runtime | Backend alarm evaluator writing `alarm_events` | — | Browser does not evaluate. |
 | **F4.6E-0** | WebSocket / SSE Fan-out Plan | Deferred | Plan | TBD | — | Downstream-only, never source of truth. |
 | **F4.6E.1** | WebSocket / SSE Fan-out Implementation | Deferred | Runtime | Per-tenant / per-unit channels in `RealtimeModule` | — | Recovery via REST reconnect; not a replay buffer. |
@@ -94,7 +95,7 @@ The following decisions currently govern the project. Each links back to its sou
 11. **F4.6B.1 does not update `live_readings` yet.** Verified by isolation test #17. F4.6C is the dedicated phase that owns the upsert.
 12. **Alarm evaluation, WebSocket / SSE fan-out, and external protocol integrations remain deferred.** Each has its own future phase; nothing is built ahead of its dedicated review.
 
-## 5. Current Implemented Capabilities (as of `1495457`)
+## 5. Current Implemented Capabilities (as of `04dadc4`)
 
 What exists today, end-to-end:
 
@@ -105,7 +106,7 @@ What exists today, end-to-end:
 - **Canonical-instrument timestamp dedup partial unique index** (`telemetry_readings_dedup_ts_uk`): `(sensor_id, canonical_tag_id, "timestamp") WHERE sequence IS NULL`.
 - **Forensic auxiliary index** (`telemetry_readings_ingestion_id_idx`): partial, non-unique, on `(ingestion_id, created_at DESC)`.
 - **`telemetry_ingestion_errors` quarantine table.** 19 columns; 15-value `reason` CHECK enum; 4 indexes.
-- **`live_readings` projection table.** Exists with PK `(id)` + UNIQUE `(unit_id, sensor_id, canonical_tag_id)`. **Empty.** F4.6C owns population.
+- **`live_readings` projection table.** Exists with PK `(id)` + UNIQUE `(unit_id, sensor_id, canonical_tag_id)`. **Populated by F4.6C.1** (`49a8349`) inside the same `prisma.$transaction` as the canonical `telemetry_readings` insert; quality-gated to `good`, watermark-gated by `timestamp` (strictly newer overwrites).
 - **`live_readings_projection` SQL VIEW** preserved (F4.6A.0 §5.E) for non-destructive coexistence; will be revisited at F4.6C / F4.6F.
 - **Backend telemetry ingestion boundary module** at `apps/backend/src/telemetry/ingestion/` (`1495457`).
 - **`POST /api/v1/telemetry/ingest` HTTP endpoint** — exists **only** when `RVF_INGEST_ENABLED === 'true'`.
@@ -115,7 +116,7 @@ What exists today, end-to-end:
 - **`telemetry_readings` insert path** (canonical write).
 - **`telemetry_ingestion_errors` quarantine path** (diagnostic write).
 - **Duplicate / conflict handling** via `Prisma.PrismaClientKnownRequestError` code `P2002`. Identical = `duplicate` no-op; different = `conflict_quarantined` with `reason='conflict_dedup'`.
-- **22 backend ingestion tests + 69 baseline tests = 91/91 passing**. Tests cover every quarantine reason F4.6B.1 emits plus isolation invariants (no `live_readings`, no `alarm_events`, no realtime, no Jobs).
+- **22 backend ingestion tests + 11 projection tests + 9 ingestion-projection integration tests + 69 baseline tests = 111/111 passing** as of F4.6C.1. Tests cover every quarantine reason F4.6B.1 emits plus the F4.6C.1 projection outcomes (`created`, `updated`, `skipped_stale`, `skipped_equal_timestamp`, `skipped_quality`), race-safety on P2002 during create, and rollback semantics when the projection writer fails. Remaining isolation invariants (no `alarm_events`, no realtime emit, no Jobs) carried forward unchanged.
 - **Read API surface (F4.4)**: `/api/v1/{tenants, wells, tags, equipment, jobs, telemetry/trends}` active. 69 backend test coverage preserved across all six modules.
 - **Frontend F4 adapter layer** (`apps/web/lib/api-data/f4/` + `apps/web/lib/api/f4/`) — F4.5A → F4.5E. Mock-default; `NEXT_PUBLIC_RVF_DATA_SOURCE=api` switches every adapter to the live API.
 - **First screen migration shipped** (F4.5F, `9e861ce`): `/units` fleet selector reads from the F4 adapter (mock or api per env flag).
@@ -124,13 +125,12 @@ What exists today, end-to-end:
 
 What is **not** yet built; deferred to its dedicated phase:
 
-- **`live_readings` updater / population.** F4.6C. The table is present but empty.
 - **Alarm evaluation engine.** F4.6D. `alarm_events` is provisioned but no row has ever been written by production code.
 - **Alarm event generation from telemetry.** F4.6D.
 - **WebSocket / SSE real-time fan-out.** F4.6E. The existing `apps/backend/src/realtime/` scaffold routes no telemetry.
 - **Historical trend API extensions** (bucketing, downsampling, multi-tag reads). F4.6F. `/telemetry/trends` remains read-only point-level.
 - **Operations trend UI wiring.** Operations charts still render from the F2 simulator + F3 mock. F4.6F or a follow-up screen-migration sub-phase.
-- **Units current-value API refinement** based on the new `live_readings` table. F4.6C decides the candidate `GET /api/v1/telemetry/latest` endpoint shape.
+- **Units current-value API surface (`GET /api/v1/telemetry/latest` or equivalent).** Not yet exposed. F4.6C.1 populates `live_readings` server-side but does not introduce a read endpoint; the shape of the public read API for current values is deferred to a follow-up sub-phase (candidate F4.6C.2 or part of F4.5G+ screen migrations).
 - **MQTT bridge.** Future adapter phase.
 - **Modbus bridge.** Future adapter phase.
 - **OPC-UA bridge.** Future adapter phase.
@@ -146,26 +146,27 @@ What is **not** yet built; deferred to its dedicated phase:
 
 ## 7. Recommended Execution Order
 
+Already closed since the previous revision of this roadmap (commit `1495457`): DX-1 (`b19e77a`), DX-2 (`e3ccb52`), DX-3 (`65cb736`), F4.6C-0 (`f126c5c`), F4.6C.1 (`49a8349`), DX-4 (`04dadc4`).
+
 The recommended order from here:
 
-1. **DX-1 — Master Roadmap** *(this document)*.
-2. **DX-2 — Local DB Migration Validation Procedure.** Standardized `prisma migrate dev` + reverse-SQL playbook against a local Postgres. Lands before any further DB-dependent runtime phase so every schema phase from F4.6C onward has the same validation runbook.
-3. **DX-3 — Definition of Done.** Per-phase-type checklist (plan / migration / runtime / docs-only). Lands before further runtime phases so each one closes against the same explicit criteria.
-4. **F4.6C-0 — Live Readings Projection Updater Plan.** Plan-first per project pattern. Decides the projection-upsert mechanism (transactional with the canonical insert vs. post-commit hook), the `GET /telemetry/latest` shape, and the fate of the F4.2 baseline `live_readings_projection` VIEW.
-5. **F4.6C.1 — Live Readings Projection Updater Implementation.** First write to `live_readings`. Adds the projection-upsert step inside `TelemetryIngestionService` (or a small collaborator) and ships the latest-value endpoint.
-6. **F4.6D-0 — Alarm Evaluation Boundary Plan.** Operational-context lookup design (which `CommissioningSnapshot` applies?). Threshold-resolution and lifecycle-transition rules.
-7. **F4.6D.1 — Alarm Evaluation Implementation.** Backend evaluator writing `alarm_events` lifecycle. Browser still does not evaluate; F2 frontend evaluator switches data source to persisted events here.
-8. **F4.6E-0 — WebSocket / SSE Fan-out Plan.** Channel topology, payload shape, throttle policy. Downstream-only.
-9. **F4.6E.1 — WebSocket / SSE Fan-out Implementation.** Per-tenant / per-unit emit after transaction commits. REST reconnect remains the recovery path.
-10. **F4.6F-0 — Historical Trend API Plan.** Bucketing / downsampling / multi-tag read decisions. UI cutover plan for Operations charts off the F2 simulator.
-11. **F4.6F.1 — Historical Trend API Implementation.** Endpoint extensions and the Operations chart screen migration.
-12. **F4.5G — Resume UI adapter wiring** (Wells, Equipment, Catalog, …) when the backend telemetry runway is stable and the per-screen targets have a populated `live_readings` to render against. May also proceed in parallel with F4.6C+ for non-telemetry screens.
+1. **F4.6D-0 — Alarm Evaluation Boundary Plan.** Operational-context lookup design (which `CommissioningSnapshot` applies?). Threshold-resolution and lifecycle-transition rules. Plan-first per the DX-3 pattern.
+2. **F4.6D.1 — Alarm Evaluation Implementation.** Backend evaluator writing `alarm_events` lifecycle. Browser still does not evaluate; F2 frontend evaluator switches data source to persisted events here.
+3. **F4.6E-0 — WebSocket / SSE Fan-out Plan.** Channel topology, payload shape, throttle policy. Downstream-only.
+4. **F4.6E.1 — WebSocket / SSE Fan-out Implementation.** Per-tenant / per-unit emit after transaction commits. REST reconnect remains the recovery path.
+5. **F4.6F-0 — Historical Trend API Plan.** Bucketing / downsampling / multi-tag read decisions. UI cutover plan for Operations charts off the F2 simulator.
+6. **F4.6F.1 — Historical Trend API Implementation.** Endpoint extensions and the Operations chart screen migration.
+7. **F4.5G — Resume UI adapter wiring** (Wells, Equipment, Catalog, …). May also proceed in parallel with F4.6D+ for non-telemetry screens.
 
-**Why DX-2 and DX-3 land before F4.6C:**
+**Why F4.6D is next:**
 
-- **DX-2 (migration validation procedure):** F4.6A.1 already shipped a reverse-migration SQL sibling, but the project has no standardized runbook for applying / verifying / rolling back migrations against a local Postgres. F4.6C is the next phase that introduces schema-adjacent behavior (the upsert against `live_readings`). Landing a shared procedure first means every later DB-dependent phase has the same one-page operator runbook to reference.
-- **DX-3 (Definition of Done):** F4.6B.1 introduced the first real runtime in the F4.6 arc; subsequent runtime phases (F4.6C / F4.6D / F4.6E) benefit from a shared checklist that fixes "what 'closed' means" for each phase type. Without it, scope creep is the easiest failure mode.
-- **F4.6C is more rigorous after DX-2 + DX-3** because it depends on accepted telemetry from F4.6B.1, on a stable migration story (the projection update has to handle late-arrival semantics correctly), and on a clear closeout pattern that the next three implementation phases can replicate.
+- **F4.6C.1 closed the canonical-write side** end-to-end: ingestion accepts samples, persists to `telemetry_readings`, updates `live_readings` inside the same transaction. Alarms are the next behavioral concern downstream of accepted readings.
+- **DX-3 (Definition of Done) is now in force** and the F4.6B.1 / F4.6C.1 closeouts established the test-isolation pattern (no `alarm_events`, no realtime emit, no Jobs). F4.6D inherits that contract.
+- **Sequencing F4.6D before F4.6E** keeps the realtime fan-out plan downstream of a stable alarm-event producer — otherwise the channel topology and payload shape would have to be revisited once alarms exist.
+
+Candidate follow-ups not in the main sequence (drafted as the live-readings read API is needed):
+
+- **Candidate F4.6C.2 — Latest-value read API.** Public `GET /api/v1/telemetry/latest` (or equivalent) over the now-populated `live_readings`. Shape decided when a screen migration requires it.
 
 Parallel work allowed at any time without unblocking the main track:
 
@@ -224,15 +225,14 @@ Different phase types call for different validation surfaces. The following is t
 | Risk | Mitigation |
 |---|---|
 | The new ingestion boundary is fresh runtime and needs careful review. | F4.6B.1 closeout documents the contract and the 22 service tests; reviewers can cross-check the test names against §5–§13 of F4.6B-0. DX-3 (Definition of Done) will codify the per-PR review checklist. |
-| `live_readings` table exists but is not populated yet. | The F4.6A.1 schema explicitly documents this. F4.6B.1 isolation tests assert the boundary does not write to it. F4.6C is the dedicated phase that owns the population mechanism; it cannot start before review. |
-| Future live projection must not diverge from `telemetry_readings`. | F4.6C plan must commit to "projection upsert participates in the same transactional unit as the canonical insert" (or define an equivalent reconciliation rule). Deterministic rebuild query from `telemetry_readings` will live in F4.6C. |
+| `live_readings` projection drift vs `telemetry_readings`. | F4.6C.1 (`49a8349`) places the projection upsert inside the same `prisma.$transaction` as the canonical insert, so they commit / rollback together. Watermark gate ensures late readings persist canonically but never overwrite the projection. Deterministic rebuild from `telemetry_readings` remains possible (the projection is non-canonical by ADR-008 §3 decision 5). |
 | Dedup logic depends on correct partial unique indexes and conflict handling. | F4.6A.1 indexes are partial UNIQUE with explicit predicates; F4.6B.1 catches `P2002` and classifies (duplicate vs conflict) by field-by-field comparison. Real-DB integration test deferred but planned. |
 | Tenant / source mapping must avoid trusting payload identities. | Wire schema (F4.6B.1 `contracts/ingestion.ts`) does not carry `tenantId`. Service derives tenant from `IntegrationSource.tenant_id`. Test #21 asserts `ctx.tenantId` is ignored. Reviewer rejects any PR that re-introduces payload-supplied tenancy. |
 | External protocol integrations can introduce scope creep into other phases. | Phase Control Rule §8.5: each integration gets its own plan / ADR / sub-phase. No phase rolls bridges into other concerns. |
 | Alarm evaluation must not be implemented in the browser. | ADR-005 invariant preserved by ADR-008 §3 decision 10. F4.6D owns the backend evaluator. Frontend F2 evaluator continues to consume persisted `alarm_events` once F4.6D ships. |
 | WebSocket / SSE fan-out must remain downstream of persistence, not source of truth. | ADR-008 §3 decision 11. F4.6E's plan must commit to "emit after commit"; recovery via REST reconnect, not WebSocket replay. |
 | Jobs terminology creeping into the boundary before Jobs is designed. | `closed_job` excluded from the F4.6A.1 CHECK enum. `inactive_context` is the neutral forward-looking placeholder. F4.6B.1 test #20 asserts `jobId = null` on canonical inserts. A future ADR (candidate ADR-012) will introduce the operational-context model. |
-| ADR-008 transitioning to `Accepted` prematurely. | Phase Control Rule §8.10: at least F4.6C must ship and ideally a live-DB integration suite must verify dedup / projection / conflict semantics before the ADR can graduate. |
+| ADR-008 transitioning to `Accepted` prematurely. | Phase Control Rule §8.10: F4.6C.1 has now shipped (`49a8349`) and exercised the canonical-insert / projection-upsert transactional contract, but ADR-008 should remain `Proposed` until a live-DB integration suite verifies dedup / projection / conflict semantics end-to-end (currently exercised only via mocked Prisma in 111 unit tests). |
 
 ## 11. Glossary / Terms
 
@@ -284,4 +284,4 @@ Phase plans (`*_Plan.md`) typically do **not** need to update this roadmap unles
 
 ---
 
-*Master Roadmap, authored at HEAD `1495457` (F4.6B.1 — Telemetry Ingestion Boundary Skeleton). Update on every phase close.*
+*Master Roadmap, last refreshed at HEAD `04dadc4` (DX-4 — Roadmap Update + Docker Runtime Note). Originally authored at HEAD `1495457` (F4.6B.1). Update on every phase close.*
