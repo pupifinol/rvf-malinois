@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
+import { AlarmEvaluationService } from '../../alarms/alarm-evaluation.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LiveReadingsProjectionService } from '../projection/live-readings-projection.service';
 
@@ -43,8 +44,12 @@ import type { IntegrationMapping, IntegrationSource } from '@prisma/client';
  *      outcome with one of the 15 F4.6A.1 CHECK-enum reasons.
  *
  * **What this service explicitly does NOT do (F4.6B-0 §14.2, §17):**
- *   - **No `live_readings` mutation.** Owned by F4.6C.
- *   - **No `alarm_events` mutation.** Owned by F4.6D.
+ *   - **No `live_readings` mutation.** Delegated to `LiveReadingsProjectionService`
+ *     (F4.6C.1). The ingestion service never calls `prisma.liveReading.*`
+ *     directly.
+ *   - **No `alarm_events` mutation.** Delegated to `AlarmEvaluationService`
+ *     (F4.6D.1). The ingestion service never calls `prisma.alarmEvent.*`
+ *     directly.
  *   - **No realtime / WebSocket / SSE emission.** Owned by F4.6E.
  *   - **No external bridge (MQTT / Modbus / OPC-UA / ThingsBoard / Node-RED /
  *     PLC / edge-gateway / historian) wiring.** Each future bridge is its own
@@ -71,6 +76,7 @@ export class TelemetryIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projection: LiveReadingsProjectionService,
+    private readonly alarms: AlarmEvaluationService,
   ) {}
 
   /**
@@ -396,23 +402,28 @@ export class TelemetryIngestionService {
           : BigInt(sample.sequence)
         : null;
 
-    // The canonical insert and the live_readings projection update share the
-    // same transactional unit (F4.6C-0 §7.3 / ADR-008 §3 decision 5). On any
-    // failure inside the transaction — including the projection writer's own
-    // unexpected errors — the canonical row is rolled back, and the outer
-    // catch surfaces the sample as `rejected_quarantined` with
-    // `mapping_engine_failure` (no new reason value introduced).
+    // The canonical insert, the live_readings projection update, and the
+    // alarm evaluation step share the same transactional unit
+    // (F4.6C-0 §7.3 / F4.6D-0 §6.1 / ADR-008 §3 decision 5). On any failure
+    // inside the transaction — including the projection writer's or the
+    // alarm evaluator's own unexpected errors — the canonical row is rolled
+    // back, and the outer catch surfaces the sample as
+    // `rejected_quarantined` with `mapping_engine_failure` (no new reason
+    // value introduced).
     //
-    // The projection updater is invoked only for `accepted` + `quality ===
-    // 'good'`. The projection service enforces the same gate defensively,
-    // but the call-site gate keeps non-good samples out of the projection
-    // path entirely (avoids needless DB work).
+    // The projection updater AND the alarm evaluator are both invoked only
+    // for `accepted` + `quality === 'good'`. Each service also enforces the
+    // gate defensively, but the call-site gate keeps non-good samples out
+    // of both paths entirely (avoids needless DB work).
     //
     // P2002 from the canonical insert (the F4.6A.1 dedup indexes) still
     // surfaces via the outer catch and is classified as `duplicate` vs
     // `conflict_quarantined` by `classifyDedup`. The projection's own race
     // path (P2002 on `live_readings_unit_sensor_tag_uk`) is handled inside
     // the projection service so it does not leak into the dedup classifier.
+    // The alarm evaluator does not have an analogous race path (no UNIQUE
+    // constraint on the active-event composite key); its duplicate-active
+    // guard is the explicit `findFirst` inside `AlarmEvaluationService`.
     const valueDecimal = new Prisma.Decimal(valueStr);
     const ingestionTimestamp = now;
 
@@ -451,6 +462,26 @@ export class TelemetryIngestionService {
               timestamp: sampleTs,
               source: source.kind,
               ingestionTimestamp,
+            },
+            tx,
+          );
+
+          // F4.6D.1: alarm evaluation runs after the projection upsert, inside
+          // the same per-sample transaction. The evaluator owns every read
+          // and write against `alarm_rules` / `alarm_events`; the ingestion
+          // service never touches those tables directly.
+          await this.alarms.evaluate(
+            {
+              telemetryReadingId: row.id,
+              tenantId,
+              unitId: mapping.unitId,
+              sensorId,
+              canonicalTagId,
+              value: valueDecimal,
+              engineeringUnit: sample.engineeringUnit,
+              quality: 'good',
+              timestamp: sampleTs,
+              source: source.kind,
             },
             tx,
           );
