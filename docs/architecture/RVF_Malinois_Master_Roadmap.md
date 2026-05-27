@@ -2,7 +2,7 @@
 
 > Top-level navigation roadmap and project-status document for RVF Malinois.
 > Documentation-only artifact. Maintained alongside phase closeouts; updated when a phase closes, an ADR lands, scope changes, or the execution order shifts.
-> Last known head at authoring time: commit `d35a2b8` (F4.6D.1 — Alarm Evaluation Boundary Implementation). Previously anchored at `901cd22` (F4.6D-0), `04dadc4` (DX-4), and `1495457` (F4.6B.1).
+> Last known head at authoring time: commit `22fa2ca` (F4.6E-0 — WebSocket / SSE Fan-out Plan). Previously anchored at `d35a2b8` (F4.6D.1), `901cd22` (F4.6D-0), `04dadc4` (DX-4), and `1495457` (F4.6B.1).
 
 ## 1. Purpose
 
@@ -31,7 +31,7 @@ RVF Malinois is being built as **its own canonical platform**. The decision-of-r
 | Telemetry ingestion boundary | RVF-owned; `POST /api/v1/telemetry/ingest` guarded by `RVF_INGEST_ENABLED` (F4.6B.1 in commit `1495457`) |
 | Live projection | `live_readings` populated by the ingestion boundary inside the canonical insert transaction, quality-gated to `good`, watermark-gated by `timestamp` (F4.6C.1 in commit `49a8349`) |
 | Alarm evaluation | `AlarmEvaluationService` writes controlled `state='active'` `alarm_events` rows inside the canonical ingestion transaction (F4.6D.1 in commit `d35a2b8`). Internal / service-level only; no public API. Lifecycle (acknowledge / clear), notifications, and WebSocket / SSE fan-out remain deferred. |
-| WebSocket / SSE fan-out | Deferred to F4.6E |
+| WebSocket / SSE fan-out | Planned — F4.6E-0 plan closed (commit `22fa2ca`); implementation deferred to F4.6E.1. Protocol locked to **Socket.IO over WebSocket** (existing `RealtimeGateway` scaffold reused); SSE not in F4.6E.1 scope. |
 | External protocol bridges (MQTT / Modbus / OPC-UA / ThingsBoard / Node-RED / PLC / edge / historian) | Deferred — each future phase, possibly its own ADR; **none introduced yet** |
 
 After F4.6C.1, the platform has both a controlled write path into canonical telemetry **and** a transactionally-consistent latest-value projection. Behavioral side effects further downstream (alarm evaluation, realtime fan-out, historical-trend extensions) remain firmly in their own future phases.
@@ -71,8 +71,8 @@ After F4.6C.1, the platform has both a controlled write path into canonical tele
 | **DX-4** | Roadmap Update + Docker Runtime Note | Closed | Docs | `docs/architecture/RVF_Malinois_DX_4_Roadmap_Update_Docker_Runtime_Note_v1.0.md` + README pointer | `04dadc4` (Add DX-4 roadmap update and Docker runtime note) | Developer-experience checkpoint after F4.6C.1. Documents Docker runtime, `/health` liveness contract, troubleshooting runbook, and confirms F4.6D as next implementation phase. |
 | **F4.6D-0** | Alarm Evaluation Boundary Plan | Closed | Plan | `docs/architecture/RVF_Malinois_F4_6D_Alarm_Evaluation_Boundary_Plan.md` | `901cd22` (Add F4.6D-0 alarm evaluation boundary plan) | Locks scope, semantics, persistence decision (option B — write `alarm_events` with `state='active'`, no lifecycle), internal-only API decision, ~15–20 planned test cases, and acceptance criteria for F4.6D.1. Recommends a minimal no-duplicate-active guard; lifecycle / dedup / notifications all deferred. |
 | **F4.6D.1** | Alarm Evaluation Boundary Implementation | Closed | Runtime | `apps/backend/src/alarms/alarm-evaluation.service.ts` + ingestion-transaction wiring + first writes to `alarm_events` | `d35a2b8` (Add F4.6D.1 alarm evaluation boundary implementation) | First backend collaborator authorized to write `prisma.alarmEvent.*`. Strict-inequality thresholds; severity precedence within rule (`high_high > high > low_low > low`) and one event per matched rule across rules; quality-gated to `good`; duplicate-active guard prevents repeated `active` rows for the same `(unit, tag, rule)` while lifecycle remains deferred; frozen `rule_snapshot` JSONB. Internal / service-level only — no public API. Backend tests 140/140. Browser does not evaluate. |
-| **F4.6E-0** | WebSocket / SSE Fan-out Plan | **Next** | Plan | TBD | — | Downstream-only, never source of truth. Plan-first per the DX-3 pattern. |
-| **F4.6E.1** | WebSocket / SSE Fan-out Implementation | Deferred | Runtime | Per-tenant / per-unit channels in `RealtimeModule` | — | Recovery via REST reconnect; not a replay buffer. |
+| **F4.6E-0** | WebSocket / SSE Fan-out Plan | Closed | Plan | `docs/architecture/RVF_Malinois_F4_6E_WebSocket_SSE_Fan_Out_Plan.md` | `22fa2ca` (Add F4.6E-0 WebSocket SSE fan-out plan) | Locks protocol (Socket.IO over WebSocket; SSE deferred), event types (`telemetry.reading.accepted` / `live_reading.updated` / `alarm.event.created`), per-tenant room topology, emit-after-commit semantics, REST-only resync, no replay buffer, no auth (env-gated by `RVF_REALTIME_EMIT_ENABLED`), test plan (~21–25 new backend tests), and acceptance criteria for F4.6E.1. Reuses the existing F0/F2 `RealtimeGateway` scaffold. |
+| **F4.6E.1** | WebSocket / SSE Fan-out Implementation | **Next** | Runtime | `RealtimeEmitterService` + extended `RealtimeGateway` subscribe/unsubscribe + post-commit emit hook in `TelemetryIngestionService` | — | First production emit from the existing gateway. Scope per F4.6E-0 §7 / §8 / §9 / §10 / §13. Per-tenant rooms only (per-unit join is forward-compat seam); emit after `prisma.$transaction` resolves successfully; nothing on rollback. |
 | **F4.6F-0** | Historical Trend API / Operations Trend Support Plan | Deferred | Plan | TBD | — | Builds on `telemetry_readings` populated by F4.6B+. |
 | **F4.6F.1** | Historical Trend API Implementation | Deferred | Runtime + frontend | Optional bucketing / downsampling extensions to `/telemetry/trends`; Operations chart cutover from F2 simulator | — | — |
 
@@ -95,7 +95,7 @@ The following decisions currently govern the project. Each links back to its sou
 11. **F4.6B.1 does not update `live_readings` yet.** Verified by isolation test #17. F4.6C is the dedicated phase that owns the upsert.
 12. **Alarm evaluation, WebSocket / SSE fan-out, and external protocol integrations remain deferred.** Each has its own future phase; nothing is built ahead of its dedicated review.
 
-## 5. Current Implemented Capabilities (as of `d35a2b8`)
+## 5. Current Implemented Capabilities (as of `22fa2ca`)
 
 What exists today, end-to-end:
 
@@ -124,6 +124,7 @@ What exists today, end-to-end:
 - **Read API surface (F4.4)**: `/api/v1/{tenants, wells, tags, equipment, jobs, telemetry/trends}` active. 69 backend test coverage preserved across all six modules.
 - **Frontend F4 adapter layer** (`apps/web/lib/api-data/f4/` + `apps/web/lib/api/f4/`) — F4.5A → F4.5E. Mock-default; `NEXT_PUBLIC_RVF_DATA_SOURCE=api` switches every adapter to the live API.
 - **First screen migration shipped** (F4.5F, `9e861ce`): `/units` fleet selector reads from the F4 adapter (mock or api per env flag).
+- **Socket.IO realtime scaffold present (no business fan-out yet).** Backend: `apps/backend/src/realtime/realtime.gateway.ts` — `@WebSocketGateway` at namespace `/realtime`, path `/api/v1/stream`, CORS open to `ALLOWED_ORIGINS`. F0/F2-era; emits a `connection` greeting on connect and replies to `ping → pong` only — **no subscribe/unsubscribe handlers, no business events emitted, no Prisma access, no auth.** Frontend: `apps/web/lib/realtime/socket.ts` (`socket.io-client@^4.8.1` with exponential-backoff reconnect, typed `RealtimeMessage` listeners, `lastDataAt` tracking per ADR-005). F2D `BackendWebSocketTelemetryAdapter` wired but receives nothing the backend produces. **F4.6E.1** is the phase that turns this scaffold into a production fan-out path.
 
 ## 6. Explicitly Not Implemented Yet
 
@@ -132,7 +133,13 @@ What is **not** yet built; deferred to its dedicated phase:
 - **Public alarm read API.** No HTTP route exposes `alarm_events`. F4.6D.1 writes rows but stays internal / service-level (F4.6D-0 §11). Candidate sub-phase **F4.6D.2 — Alarm Events Read API**, sized when a frontend consumer requires it.
 - **Alarm lifecycle transitions** (`active` → `acknowledged` → `cleared`). Schema columns (`acknowledged_at`, `acknowledged_by`, `cleared_at`) and the `state` CHECK enum already exist; F4.6D.1 writes `state='active'` rows and never transitions them. Candidate sub-phase **F4.6D.3 — Alarm Lifecycle** (which also owns the `audit_logs` writes per ADR-005 — F4.6D.1 owes none because it only creates the initial active row, not a transition).
 - **Notifications / escalation / webhooks / email / SMS / WhatsApp / push.** Not in the F4.6 arc. Deferred indefinitely until a dedicated phase exists.
-- **WebSocket / SSE real-time fan-out** (of telemetry, projection updates, or alarm events). F4.6E. The existing `apps/backend/src/realtime/` scaffold routes nothing.
+- **WebSocket business fan-out of telemetry / projection / alarm events.** F4.6E.1. The existing `apps/backend/src/realtime/` scaffold routes nothing today; F4.6E-0 (`22fa2ca`) locks the protocol (Socket.IO over WebSocket), event types, per-tenant rooms, emit-after-commit semantics, and the `RVF_REALTIME_EMIT_ENABLED` env gate. F4.6E.1 ships the production emit path.
+- **SSE (Server-Sent Events) transport.** Not in F4.6E.1 scope. F4.6E-0 §6 analyzed SSE vs WebSocket and recommended single-transport (WebSocket via the existing Socket.IO scaffold). A read-only SSE mirror remains a candidate sub-phase (F4.6E.2) only if a use case appears.
+- **Frontend per-screen realtime wiring.** F4.6E.1 ships server-side emission only. Migrating the F2D `BackendWebSocketTelemetryAdapter` (or authoring a new F4-shape adapter) to consume the new `telemetry.reading.accepted` / `live_reading.updated` / `alarm.event.created` event types is a separate frontend task (candidate part of F4.5G+ screen migrations).
+- **Multi-replica Socket.IO adapter** (`@socket.io/redis-adapter` or equivalent). Not needed today (single backend container per `docker compose up`). Candidate sub-phase F4.6E.3 when a second replica appears.
+- **Replay buffer / last-event-id resync** for missed events during a disconnect. Out of scope by design (F4.6E-0 §12) — recovery is REST reconnect against `telemetry_readings` / `live_readings` / `alarm_events`. No durable outbox or in-memory per-socket buffer is planned.
+- **Coalescing / throttling / batching of emits.** F4.6E.1 emits one Socket.IO frame per descriptor; coalesce is a future tuning concern (candidate F4.6E.4) once real backpressure is observed.
+- **WebSocket / SSE authentication.** F4.6E.1 inherits the project-wide no-auth posture (matches REST today). Candidate ADR-009 + dedicated phase owns auth across REST and WebSocket uniformly.
 - **Stateful alarm semantics** — `deadband` hysteresis, `delay_seconds` debounce, rate-of-change rules, and use of the reserved `alarm_thresholds` table. F4.6D.1 reads `deadband` / `delay_seconds` into the `rule_snapshot` for audit but does **not** enforce them. Candidate sub-phase **F4.6D.4 — Stateful Threshold Semantics**.
 - **Low-band rules in the F4.3 seed.** Schema supports them; the evaluator handles them correctly (F4.6D.1 tests #5–#8); the F4.3 seed populates only `high` / `high_high`. Seed expansion is a separate task, not assigned to a phase yet.
 - **Historical trend API extensions** (bucketing, downsampling, multi-tag reads). F4.6F. `/telemetry/trends` remains read-only point-level.
@@ -153,22 +160,21 @@ What is **not** yet built; deferred to its dedicated phase:
 
 ## 7. Recommended Execution Order
 
-Already closed since the previous revision of this roadmap (commit `1495457`): DX-1 (`b19e77a`), DX-2 (`e3ccb52`), DX-3 (`65cb736`), F4.6C-0 (`f126c5c`), F4.6C.1 (`49a8349`), DX-4 (`04dadc4`), F4.6D-0 (`901cd22`), **F4.6D.1 (`d35a2b8`)**.
+Already closed since the previous revision of this roadmap (commit `1495457`): DX-1 (`b19e77a`), DX-2 (`e3ccb52`), DX-3 (`65cb736`), F4.6C-0 (`f126c5c`), F4.6C.1 (`49a8349`), DX-4 (`04dadc4`), F4.6D-0 (`901cd22`), F4.6D.1 (`d35a2b8`), **F4.6E-0 (`22fa2ca`)**.
 
 The recommended order from here:
 
-1. **F4.6E-0 — WebSocket / SSE Fan-out Plan.** Channel topology (per-tenant / per-unit / per-sensor — TBD by the plan); payload shape across the three downstream concerns now in play (telemetry-reading events, projection updates, alarm-event creations); throttle / batching policy; the "emit after commit" contract; REST reconnect as the only recovery path (no fan-out replay buffer). Plan-first per the DX-3 pattern.
-2. **F4.6E.1 — WebSocket / SSE Fan-out Implementation.** Per-tenant / per-unit emit after transaction commits. REST reconnect remains the recovery path.
-3. **F4.6F-0 — Historical Trend API Plan.** Bucketing / downsampling / multi-tag read decisions. UI cutover plan for Operations charts off the F2 simulator.
-4. **F4.6F.1 — Historical Trend API Implementation.** Endpoint extensions and the Operations chart screen migration.
-5. **F4.5G — Resume UI adapter wiring** (Wells, Equipment, Catalog, …). May also proceed in parallel with F4.6E+ for non-telemetry screens.
+1. **F4.6E.1 — WebSocket / SSE Fan-out Implementation.** Production emission from the existing Socket.IO scaffold. Scope, protocol, event types, room topology, semantics, and acceptance all locked by F4.6E-0 (`22fa2ca`). `RealtimeEmitterService` invoked from `TelemetryIngestionService` **after** the per-sample `prisma.$transaction` resolves successfully; nothing on rollback; env-gated by `RVF_REALTIME_EMIT_ENABLED`; per-tenant rooms only; no auth, no replay buffer, no SSE.
+2. **F4.6F-0 — Historical Trend API Plan.** Bucketing / downsampling / multi-tag read decisions. UI cutover plan for Operations charts off the F2 simulator.
+3. **F4.6F.1 — Historical Trend API Implementation.** Endpoint extensions and the Operations chart screen migration.
+4. **F4.5G — Resume UI adapter wiring** (Wells, Equipment, Catalog, …). May also proceed in parallel with F4.6E.1+ for non-telemetry screens.
 
-**Why F4.6E-0 is next:**
+**Why F4.6E.1 is next:**
 
-- **F4.6D.1 is closed** (`d35a2b8`). `alarm_events` is now populated by canonical, in-transaction writes from `AlarmEvaluationService`. That gives F4.6E three real downstream concerns to size its plan against — `telemetry_readings` insertions, `live_readings` projection updates, and `alarm_events` creations — instead of two.
-- **The "emit after commit" contract is now obvious.** With three transactional writers (`telemetryReading.create`, `liveReading.upsert`, `alarmEvent.create`) committing together, F4.6E's payload shape and channel topology can be designed against the actual settled state rather than a moving target.
-- **DX-3 (Definition of Done) is in force** and the F4.6B.1 / F4.6C.1 / F4.6D.1 closeouts established the plan-first pattern and the isolation-invariant contract. F4.6E-0 follows the same shape: plan locks scope / semantics / API / tests / acceptance before any code lands.
-- **Sequencing F4.6E before F4.6F** keeps the historical trend API plan downstream of a stable realtime push — otherwise the trend endpoint's interaction with realtime reconnect would have to be revisited once fan-out exists.
+- **F4.6E-0 is closed** (`22fa2ca`). The plan locks every decision the implementation has to make: protocol (Socket.IO over WebSocket; SSE deferred — §6), event types and payload shapes (§8), per-tenant rooms (§9), emit-after-commit semantics (§10), REST-only resync (§12), no-auth posture with `RVF_REALTIME_EMIT_ENABLED` env gate (§13), 13 acceptance criteria (§17). F4.6E.1 implements the plan; it does not redesign.
+- **The existing Socket.IO scaffold is the production foundation.** Backend `RealtimeGateway`, frontend `socket.io-client`, shared `RealtimeMessage` types, and the F2D `BackendWebSocketTelemetryAdapter` are all already wired. F4.6E.1 extends — does not introduce — the transport stack.
+- **DX-3 (Definition of Done) is in force** and the F4.6B.1 / F4.6C.1 / F4.6D.1 closeouts established the test-isolation pattern. F4.6E.1 adds two new positive invariants: (1) `realtime.emitMany(...)` is called **after** `prisma.$transaction` resolves; (2) emit is **never** called on rollback / duplicate / conflict / rejected paths.
+- **Sequencing F4.6E.1 before F4.6F** keeps the historical trend API plan downstream of a stable realtime push — otherwise the trend endpoint's interaction with realtime reconnect (the REST resync surface F4.6F is expected to extend) would have to be revisited once fan-out exists.
 
 Candidate follow-ups not in the main sequence (named so they have a place to land):
 
@@ -296,4 +302,4 @@ Phase plans (`*_Plan.md`) typically do **not** need to update this roadmap unles
 
 ---
 
-*Master Roadmap, last refreshed at HEAD `d35a2b8` (F4.6D.1 — Alarm Evaluation Boundary Implementation). Previous refresh anchors: `901cd22` (F4.6D-0), `04dadc4` (DX-4). Originally authored at HEAD `1495457` (F4.6B.1). Update on every phase close.*
+*Master Roadmap, last refreshed at HEAD `22fa2ca` (F4.6E-0 — WebSocket / SSE Fan-out Plan). Previous refresh anchors: `d35a2b8` (F4.6D.1), `901cd22` (F4.6D-0), `04dadc4` (DX-4). Originally authored at HEAD `1495457` (F4.6B.1). Update on every phase close.*
