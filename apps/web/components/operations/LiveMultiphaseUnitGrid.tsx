@@ -35,6 +35,7 @@ export const LiveMultiphaseUnitGrid = () => {
           displayName={b.displayName}
           connectionStatus={conn}
           density={density}
+          backendUnitCode={b.backendUnitCode}
         />
       ))}
     </section>

@@ -16,6 +16,15 @@ export {
   type UseOperationsRealtimeF4Result,
 } from './useOperationsRealtimeF4';
 export {
+  useResolveBackendUnitId,
+  type UseResolveBackendUnitIdResult,
+} from './useResolveBackendUnitId';
+export {
+  useOperationsLatestValues,
+  type UseOperationsLatestValuesInput,
+  type UseOperationsLatestValuesResult,
+} from './useOperationsLatestValues';
+export {
   useOperationsTrendSeries,
   policyForWindow,
   TREND_WINDOWS,

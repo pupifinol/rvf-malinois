@@ -15,15 +15,23 @@
 
 import { cn } from '@rvf/ui';
 import { Signal, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-react';
+import { useMemo } from 'react';
 
 import { LiveVariableTile } from './LiveVariableTile';
 import { UnitImage } from './UnitImage';
 import { OPERATIONS_TILES, rollUpUnitStatus, type UnitBadgeStatus } from './viewModel';
 
+import type { TrackedSlot } from '@/lib/hooks';
 import type { ActiveJobSnapshot } from '@/lib/jobs/types';
 import type { CommunicationStatus } from '@/lib/telemetry/models';
 
-import { useNowTick, useUnitTelemetrySnapshot } from '@/lib/hooks';
+import {
+  useNowTick,
+  useOperationsLatestValues,
+  useOperationsRealtimeF4,
+  useResolveBackendUnitId,
+  useUnitTelemetrySnapshot,
+} from '@/lib/hooks';
 
 type SignalStrength = 'STRONG' | 'OK' | 'WEAK' | 'NONE';
 
@@ -84,6 +92,15 @@ export interface LiveMultiphaseUnitCardProps {
   /** Communication state (used for the signal icon + connection footer). */
   connectionStatus: CommunicationStatus;
   density?: 'comfortable' | 'compact';
+  /**
+   * F4.5G.2.2.1 — explicit declaration of which backend `MeasurementUnit.code`
+   * this card's simulator job stands in for. Resolved upstream by
+   * `useResolveBackendUnitId` to a backend UUID; threaded through to each
+   * `<LiveVariableTile>` for the api-mode binding. Undefined / unresolvable
+   * → tiles render the F2 simulator path with the `No backend unit match`
+   * chip per F4.5G.2.2-0 §12.
+   */
+  backendUnitCode?: string;
 }
 
 const formatHHMM = (iso: string): string => {
@@ -124,6 +141,7 @@ export const LiveMultiphaseUnitCard = ({
   displayName,
   connectionStatus,
   density = 'comfortable',
+  backendUnitCode,
 }: LiveMultiphaseUnitCardProps) => {
   const now = useNowTick(5000);
   const unitSnap = useUnitTelemetrySnapshot({
@@ -132,6 +150,36 @@ export const LiveMultiphaseUnitCard = ({
     nowMs: now,
   });
   const compact = density === 'compact';
+
+  // F4.5G.2.2.1 — resolve the backend `MeasurementUnit.id` UUID for this card
+  // from `backendUnitCode` via the existing F4.4D units list. `null` ⇒ no
+  // match (omitted binding, or the seed has no asset with that code).
+  const resolver = useResolveBackendUnitId(backendUnitCode);
+  const backendUnitId = resolver.unitId;
+
+  // Latest-value REST hydration — disabled when `backendUnitId === null`.
+  const latestValues = useOperationsLatestValues({ unitId: backendUnitId });
+
+  // Realtime overlay — track the six tile slots for this card's resolved unit.
+  // The realtime hook's `isUuidShaped` predicate provides defense in depth;
+  // we still gate `trackedSlots` here so non-resolved cards never push slot
+  // entries.
+  const trackedSlots = useMemo<TrackedSlot[]>(() => {
+    if (backendUnitId === null) return [];
+    const slots: TrackedSlot[] = [];
+    for (const tile of OPERATIONS_TILES) {
+      const row = latestValues.valuesByTagName.get(String(tile.tag));
+      if (!row) continue;
+      slots.push({
+        unitId: backendUnitId,
+        canonicalTagId: row.canonicalTag.id,
+        canonicalTagName: row.canonicalTag.name,
+      });
+    }
+    return slots;
+  }, [backendUnitId, latestValues.valuesByTagName]);
+
+  const realtime = useOperationsRealtimeF4({ trackedSlots });
 
   const roll = rollUpUnitStatus(unitSnap.byTag, DISPLAYED_TAGS);
   const styles = statusStyles[roll.status];
@@ -202,6 +250,10 @@ export const LiveMultiphaseUnitCard = ({
             snapshot={job.snapshot}
             tile={t}
             density={density}
+            backendUnitId={backendUnitId}
+            latestValues={latestValues}
+            realtimeConnection={realtime.connection}
+            realtimeGetSlotValue={realtime.getSlotValue}
           />
         ))}
       </div>

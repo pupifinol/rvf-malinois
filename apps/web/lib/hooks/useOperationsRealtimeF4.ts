@@ -32,8 +32,10 @@
  * On reconnect (`'connected'` after `'reconnecting'`):
  *
  *   - `queryClient.invalidateQueries({ queryKey: ['f4-trends'] })` so the
- *     F4.5G.1 chart cache refetches once the link is back. Cache key shape
- *     is the one F4.5G.1 already ships.
+ *     F4.5G.1 chart cache refetches once the link is back.
+ *   - `queryClient.invalidateQueries({ queryKey: ['f4-latest'] })` (added in
+ *     F4.5G.2.2.1) so the Operations tile latest-value cache refetches in
+ *     lockstep. The two cache keys are independent.
  *
  * The hook does NOT modify `socket.ts`, `RealtimeProvider.tsx`, or the F2
  * `TelemetryStore`. It does NOT push F4 envelopes into the F2 ring buffer
@@ -284,6 +286,11 @@ export const useOperationsRealtimeF4 = (
     if (providerState.status === 'connected' && wasReconnectingRef.current) {
       wasReconnectingRef.current = false;
       void queryClient.invalidateQueries({ queryKey: ['f4-trends'] });
+      // F4.5G.2.2.1 — additionally invalidate the latest-value cache so
+      // Operations tiles refetch their canonical current value through REST
+      // once the link is back. The trend-cache invalidation behavior above
+      // stays byte-identical; the two cache keys are independent.
+      void queryClient.invalidateQueries({ queryKey: ['f4-latest'] });
     }
   }, [providerState, allowed, queryClient]);
 
