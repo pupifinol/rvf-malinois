@@ -404,3 +404,44 @@ export interface TelemetryTrendsResponse {
   /** Present only in bucketed mode (may include empty-bucket rows). */
   buckets?: TrendBucket[];
 }
+
+// =============================================================================
+// Telemetry latest — F4.6C.2.1
+// =============================================================================
+
+/**
+ * One row of the latest-values response. Derived view of the backend
+ * `live_readings` projection — `tenantId` / projection `id` / `createdAt` /
+ * `updatedAt` / `status` are intentionally not on the wire.
+ *
+ * `value` is the Prisma Decimal serialized as a string (matches the F4.4F
+ * raw-mode posture; consumers `Number(...)` if they need numeric math).
+ * `quality` is always `'good'` per the F4.6C.1 projection contract but is
+ * typed against the full F4.4F union for forward compatibility.
+ */
+export interface TelemetryLatestValue {
+  sensorId: string;
+  canonicalTag: CanonicalTagSummary;
+  /** Decimal — serialized as a string. */
+  value: string;
+  engineeringUnit: string;
+  quality: TelemetryQuality;
+  /** ISO-8601 — canonical reading timestamp (the watermark). */
+  timestamp: string;
+  /** ISO-8601 — backend acceptance time. Nullable in projection. */
+  ingestionTimestamp: string | null;
+  /** E.g. 'mqtt', 'manual', 'mock'. Nullable in projection. */
+  source: string | null;
+  /** UUID of the `telemetry_readings` row this projection points at. Nullable. */
+  latestTelemetryReadingId: string | null;
+}
+
+export interface TelemetryLatestResponse {
+  unitId: string;
+  /** ISO-8601 — server-side response-generation time. */
+  generatedAt: string;
+  /** Constant string identifying the read source. */
+  source: 'live_readings';
+  /** Zero or more rows, one per `(sensorId, canonicalTagId)` slot for the unit. */
+  values: TelemetryLatestValue[];
+}

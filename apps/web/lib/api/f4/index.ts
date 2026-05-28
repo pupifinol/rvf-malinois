@@ -39,6 +39,7 @@ export {
   type ListMeasurementUnitsParams,
   type ListJobsParams,
   type GetTelemetryTrendsParams,
+  type GetTelemetryLatestParams,
   listTenants,
   getTenant,
   listWells,
@@ -52,6 +53,7 @@ export {
   listJobs,
   getJobById,
   getTelemetryTrends,
+  getTelemetryLatest,
 } from './endpoints';
 
 // Frontend types.
@@ -90,4 +92,6 @@ export type {
   TrendAggregate,
   TrendQualityPolicy,
   TrendBucket,
+  TelemetryLatestValue,
+  TelemetryLatestResponse,
 } from './types';

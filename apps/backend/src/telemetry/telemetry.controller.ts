@@ -4,6 +4,7 @@ import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { SystemContext } from '../common/caller-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
+import { LatestQuerySchema, type LatestQuery } from './contracts/latest';
 import {
   TELEMETRY_QUALITIES,
   TELEMETRY_SOURCES,
@@ -16,12 +17,16 @@ import {
   TrendsQuerySchema,
   type TrendsQuery,
 } from './contracts/trends';
+import { LatestService } from './latest.service';
 import { TrendsService } from './trends.service';
 
 @ApiTags('telemetry')
 @Controller('telemetry')
 export class TelemetryController {
-  constructor(private readonly trends: TrendsService) {}
+  constructor(
+    private readonly trends: TrendsService,
+    private readonly latest: LatestService,
+  ) {}
 
   @Get('trends')
   @ApiOperation({
@@ -95,5 +100,43 @@ export class TelemetryController {
   })
   series(@Query(new ZodValidationPipe(TrendsQuerySchema)) query: TrendsQuery) {
     return this.trends.query(SystemContext, query);
+  }
+
+  @Get('latest')
+  @ApiOperation({
+    summary: 'Current values from `live_readings` for a measurement unit',
+    description:
+      'F4.6C.2.1 read-only surface over the `live_readings` projection ' +
+      'populated transactionally by F4.6C.1. Returns the freshest accepted ' +
+      '`good`-quality reading per `(unitId, sensorId, canonicalTagId)` slot. ' +
+      '`unitId` is required (UUID). Optional `canonicalTagId` / ' +
+      '`canonicalTagName` (XOR — supplying both is rejected as ambiguous) ' +
+      'narrows the response to one tag; omitting both returns every latest ' +
+      'value for the unit (most useful shape for a tile-grid hydration call). ' +
+      'No `from` / `to` / `limit` / `source` / `jobId` / `quality` parameters ' +
+      'are accepted — the projection is a point-in-time view and is already ' +
+      '`good`-only. Tenant scoping is derived from the server-side ' +
+      '`CallerContext`; no `tenantId` query parameter is accepted. ' +
+      'No-data behavior is `200 OK` with `values: []` (known-empty unit, ' +
+      'unknown unit, or unknown canonical tag) — never 404 on these paths, ' +
+      'matching the F4.4F empty-array posture. ' +
+      'Response envelope: `{ unitId, generatedAt, source: "live_readings", ' +
+      'values: LatestValueRow[] }`. `tenantId` / projection `id` / ' +
+      '`createdAt` / `updatedAt` / `status` are intentionally not on the ' +
+      'wire. The trend endpoint must not be abused as a latest-value API.',
+  })
+  @ApiQuery({ name: 'unitId', required: true, description: 'UUID' })
+  @ApiQuery({
+    name: 'canonicalTagId',
+    required: false,
+    description: 'UUID (XOR with canonicalTagName)',
+  })
+  @ApiQuery({
+    name: 'canonicalTagName',
+    required: false,
+    description: 'e.g. `p_inlet` (XOR with canonicalTagId)',
+  })
+  latestValues(@Query(new ZodValidationPipe(LatestQuerySchema)) query: LatestQuery) {
+    return this.latest.query(SystemContext, query);
   }
 }

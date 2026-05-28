@@ -40,6 +40,7 @@ import type {
   MeasurementUnitListRow,
   SensorType,
   SensorWithTransmitters,
+  TelemetryLatestValue,
   TelemetryPoint,
   TelemetryTrendsResponse,
   Tenant,
@@ -1139,3 +1140,93 @@ export const MOCK_F4_TRENDS_RANGE = Object.freeze({
   pointCount: TRENDS_POINT_COUNT,
   intervalMs: TRENDS_INTERVAL_MS,
 });
+
+// =============================================================================
+// F4.6C.2.1 — Latest values (synthetic, deterministic)
+// =============================================================================
+//
+// One row per `(unitId, canonicalTag)` slot we expose, mirroring the
+// `live_readings` projection shape (post wire-shape stripping — no tenantId,
+// no projection id, no createdAt/updatedAt/status).
+//
+// The HP-001 fixture rows align with the last point of the corresponding
+// `MOCK_F4_TELEMETRY_TRENDS` series so a future tile binding sees a coherent
+// "trend last point ≈ latest tile value." LP-001 carries one inlet-pressure
+// row so empty-unit and single-tag-filter paths can be exercised distinctly.
+
+const LATEST_TIMESTAMP = new Date(
+  Date.parse(TRENDS_START_TS) + (TRENDS_POINT_COUNT - 1) * TRENDS_INTERVAL_MS,
+).toISOString();
+
+const latestSensorIdFor = (unitId: string, instrumentTag: string): string =>
+  `00000000-0000-0000-0000-${hashSuffix(`sensor:${unitId}:${instrumentTag}`)}`;
+
+const latestTelemetryReadingIdFor = (unitId: string, canonicalTagName: string): string =>
+  `00000000-0000-0000-0000-${hashSuffix(`latest_tr:${unitId}:${canonicalTagName}`)}`;
+
+const tagSummaryForLatest = (tagName: string): TelemetryLatestValue['canonicalTag'] => {
+  const tag = MOCK_F4_CANONICAL_TAGS.find((t) => t.name === tagName);
+  if (!tag) {
+    throw new Error(
+      `mock-fixtures: cannot synthesize latest value — unknown canonical tag '${tagName}'`,
+    );
+  }
+  return {
+    id: tag.id,
+    name: tag.name,
+    displayName: tag.displayName,
+    canonicalUnit: tag.canonicalUnit,
+    category: tag.category,
+    precision: tag.precision,
+  };
+};
+
+const HP_001_LATEST: readonly TelemetryLatestValue[] = Object.freeze([
+  {
+    sensorId: latestSensorIdFor(HP_001_ID, 'HP-PIT-001'),
+    canonicalTag: tagSummaryForLatest('p_inlet'),
+    value: syntheticValue(P_INLET_SEED, TRENDS_POINT_COUNT - 1),
+    engineeringUnit: 'psi',
+    quality: 'good',
+    timestamp: LATEST_TIMESTAMP,
+    ingestionTimestamp: LATEST_TIMESTAMP,
+    source: 'mock',
+    latestTelemetryReadingId: latestTelemetryReadingIdFor(HP_001_ID, 'p_inlet'),
+  },
+  {
+    sensorId: latestSensorIdFor(HP_001_ID, 'HP-FIT-002'),
+    canonicalTag: tagSummaryForLatest('q_gas'),
+    value: syntheticValue(Q_GAS_SEED, TRENDS_POINT_COUNT - 1),
+    engineeringUnit: 'MMSCFD',
+    quality: 'good',
+    timestamp: LATEST_TIMESTAMP,
+    ingestionTimestamp: LATEST_TIMESTAMP,
+    source: 'mock',
+    latestTelemetryReadingId: latestTelemetryReadingIdFor(HP_001_ID, 'q_gas'),
+  },
+]);
+
+const LP_001_LATEST: readonly TelemetryLatestValue[] = Object.freeze([
+  {
+    sensorId: latestSensorIdFor(LP_001_ID, 'LP-PIT-001'),
+    canonicalTag: tagSummaryForLatest('p_inlet'),
+    value: '480.0',
+    engineeringUnit: 'psi',
+    quality: 'good',
+    timestamp: LATEST_TIMESTAMP,
+    ingestionTimestamp: LATEST_TIMESTAMP,
+    source: 'mock',
+    latestTelemetryReadingId: latestTelemetryReadingIdFor(LP_001_ID, 'p_inlet'),
+  },
+]);
+
+/**
+ * Lookup table keyed by `MeasurementUnit.id`. Used by the
+ * `adapterGetTelemetryLatest` mock branch. Unknown units fall through to the
+ * empty envelope (matches the F4.4F empty-array posture; never 404).
+ */
+export const MOCK_F4_TELEMETRY_LATEST: Readonly<Record<string, readonly TelemetryLatestValue[]>> =
+  Object.freeze({
+    [HP_001_ID]: HP_001_LATEST,
+    [LP_001_ID]: LP_001_LATEST,
+  });

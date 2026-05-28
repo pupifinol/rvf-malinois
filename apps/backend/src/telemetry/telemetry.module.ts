@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CanonicalTagResolver } from './canonical-tag-resolver';
+import { LatestService } from './latest.service';
 import { TelemetryController } from './telemetry.controller';
 import { TrendsService } from './trends.service';
 import { UnitConverter } from './unit-converter';
@@ -19,7 +20,7 @@ import { UnitConverter } from './unit-converter';
  */
 @Module({
   controllers: [TelemetryController],
-  providers: [CanonicalTagResolver, TrendsService, UnitConverter],
-  exports: [CanonicalTagResolver, TrendsService, UnitConverter],
+  providers: [CanonicalTagResolver, TrendsService, LatestService, UnitConverter],
+  exports: [CanonicalTagResolver, TrendsService, LatestService, UnitConverter],
 })
 export class TelemetryModule {}

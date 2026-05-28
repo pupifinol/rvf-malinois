@@ -59,6 +59,11 @@ export {
   trendsLatestPoint,
   isChartSeriesEmpty,
 } from './trendsToChartSeries';
+export {
+  adapterGetTelemetryLatest,
+  assertUuidShaped,
+  isUuidShaped as isLatestUnitIdUuidShaped,
+} from './latest';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.
@@ -73,4 +78,5 @@ export {
   MOCK_F4_JOB_DETAILS,
   MOCK_F4_COMMISSIONING_SNAPSHOTS,
   MOCK_F4_TELEMETRY_TRENDS,
+  MOCK_F4_TELEMETRY_LATEST,
 } from './mock-fixtures';

@@ -660,21 +660,27 @@ describe('TelemetryIngestionService.ingestBatch', () => {
     expect(result.results[2]?.outcome).toBe('accepted');
   });
 
-  // --- 17. isolation: ingestion service never calls prisma.liveReading.* --
-  it('17. isolation: ingestion service does not call prisma.liveReading.* directly (delegates to projection)', async () => {
+  // --- 17. isolation: ingestion service never writes prisma.liveReading.* --
+  it('17. isolation: ingestion service does not write prisma.liveReading.* directly (delegates to projection)', async () => {
     mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
     mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
     mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
 
     await service.ingestBatch(SystemContext, batchFixture(), NOW);
 
-    // The ingestion service delegates live-readings writes to the injected
-    // `LiveReadingsProjectionService` (F4.6C.1). It must never touch
-    // `prisma.liveReading.*` directly — that's the projection service's job.
+    // F4.6C.2.1 narrowing: the write-isolation invariant for the ingestion
+    // service is `create / update / updateMany / upsert / delete` — the
+    // projection service remains the only authorized writer. Read access
+    // to `live_readings` is now permitted at the module level (the new
+    // F4.6C.2.1 `LatestService` is the second backend module to touch the
+    // table — read-only). The ingestion service itself still neither writes
+    // nor reads `live_readings` directly, but the assertions below are
+    // intentionally narrowed to mutations so the invariant stays accurate
+    // about *what* it is protecting: nobody writes the projection except
+    // F4.6C.1's `LiveReadingsProjectionService`.
     expect(mocks.liveReadingCreate).not.toHaveBeenCalled();
     expect(mocks.liveReadingUpsert).not.toHaveBeenCalled();
     expect(mocks.liveReadingUpdateMany).not.toHaveBeenCalled();
-    expect(mocks.liveReadingFindUnique).not.toHaveBeenCalled();
   });
 
   // --- 18. isolation: ingestion service does not call prisma.alarmEvent.* directly

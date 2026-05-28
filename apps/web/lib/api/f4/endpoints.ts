@@ -23,6 +23,7 @@ import type {
   MeasurementUnitListRow,
   MeasurementUnitOperatingProfile,
   MeasurementUnitStatus,
+  TelemetryLatestResponse,
   TelemetryQuality,
   TelemetrySource,
   TelemetryTrendsResponse,
@@ -165,3 +166,27 @@ export const getTelemetryTrends = (
   options?: GetOptions,
 ): Promise<TelemetryTrendsResponse> =>
   getJson<TelemetryTrendsResponse>('/telemetry/trends', params, options);
+
+// =============================================================================
+// Telemetry latest values — F4.6C.2.1
+// =============================================================================
+
+/**
+ * Latest-value query.
+ *
+ * `unitId` is required (backend rejects non-UUID at 400). At most one of
+ * `canonicalTagId` / `canonicalTagName` may be supplied — omitting both
+ * returns every latest value for the unit (the most useful shape for a
+ * tile-grid hydration call).
+ */
+export interface GetTelemetryLatestParams {
+  unitId: string;
+  canonicalTagId?: string;
+  canonicalTagName?: string;
+}
+
+export const getTelemetryLatest = (
+  params: GetTelemetryLatestParams,
+  options?: GetOptions,
+): Promise<TelemetryLatestResponse> =>
+  getJson<TelemetryLatestResponse>('/telemetry/latest', params, options);
