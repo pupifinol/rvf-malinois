@@ -5,6 +5,15 @@ export { useConnectionStatus } from './useConnectionStatus';
 export { useHistoryBuffer } from './useHistoryBuffer';
 export { useLiveValue, type UseLiveValueOptions } from './useLiveValue';
 export { useNowTick } from './useNowTick';
+export {
+  useOperationsTrendSeries,
+  policyForWindow,
+  TREND_WINDOWS,
+  type TrendQueryPolicy,
+  type TrendWindow,
+  type UseOperationsTrendSeriesInput,
+  type UseOperationsTrendSeriesResult,
+} from './useOperationsTrendSeries';
 export { useTelemetryStore } from './useTelemetryStore';
 export {
   useUnitTelemetrySnapshot,

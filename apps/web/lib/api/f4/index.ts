@@ -86,4 +86,8 @@ export type {
   TelemetrySource,
   TelemetryPoint,
   TelemetryTrendsResponse,
+  TrendBucketSize,
+  TrendAggregate,
+  TrendQualityPolicy,
+  TrendBucket,
 } from './types';

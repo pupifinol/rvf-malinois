@@ -28,6 +28,9 @@ import type {
   TelemetryTrendsResponse,
   Tenant,
   TenantStatus,
+  TrendAggregate,
+  TrendBucketSize,
+  TrendQualityPolicy,
   Well,
 } from './types';
 
@@ -147,8 +150,14 @@ export interface GetTelemetryTrendsParams {
   jobId?: string;
   quality?: TelemetryQuality;
   source?: TelemetrySource;
-  /** Defaults to 1000 on the backend; max 5000. */
+  /** Defaults to 1000 on the backend; max 5000. Raw-mode only. */
   limit?: number;
+  /** F4.6F.1 — bucketed-mode bucket width. Requires `aggregate`. */
+  bucket?: TrendBucketSize;
+  /** F4.6F.1 — bucketed-mode aggregate expression. Requires `bucket`. */
+  aggregate?: TrendAggregate;
+  /** F4.6F.1 — bucketed-mode quality-policy filter. Requires `bucket`. */
+  qualityPolicy?: TrendQualityPolicy;
 }
 
 export const getTelemetryTrends = (

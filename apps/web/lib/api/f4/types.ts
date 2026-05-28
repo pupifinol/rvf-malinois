@@ -367,9 +367,40 @@ export interface TelemetryPoint {
   source: TelemetrySource;
 }
 
+// F4.6F.1 — bucketed-mode response fields.
+
+/** Allowed bucket widths exposed by the bucketed-mode trend endpoint. */
+export type TrendBucketSize = '1m' | '5m' | '15m' | '1h' | '1d';
+
+/** Allowed bucketed-mode aggregate expressions. */
+export type TrendAggregate = 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
+
+/** Allowed bucketed-mode quality-policy filters. */
+export type TrendQualityPolicy = 'good_only' | 'include_uncertain' | 'include_all';
+
+export interface TrendBucket {
+  /** ISO-8601 — left edge (inclusive). */
+  bucketStart: string;
+  /** ISO-8601 — right edge (exclusive). */
+  bucketEnd: string;
+  /** JS number (coerced from Decimal server-side); `null` when `sampleCount === 0`. */
+  value: number | null;
+  /** Rows that entered the aggregator for this bucket. */
+  sampleCount: number;
+}
+
 export interface TelemetryTrendsResponse {
   unitId: string;
   canonicalTag: CanonicalTagSummary;
   range: { from: string; to: string };
+  /** Always present. Empty array in bucketed mode (the shape stays stable). */
   points: TelemetryPoint[];
+  /** Present only in bucketed mode. */
+  bucket?: TrendBucketSize;
+  /** Present only in bucketed mode. */
+  aggregate?: TrendAggregate;
+  /** Present only in bucketed mode. */
+  qualityPolicy?: TrendQualityPolicy;
+  /** Present only in bucketed mode (may include empty-bucket rows). */
+  buckets?: TrendBucket[];
 }

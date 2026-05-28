@@ -303,6 +303,51 @@ describe('telemetry-trends adapter — validation', () => {
     expect(response.canonicalTag.name).toBe('not_a_real_tag');
   });
 
+  it('rejects bucket without aggregate (mirrors backend Zod refine)', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    stubFetchThatThrows();
+
+    await expect(
+      adapterGetTelemetryTrends({
+        unitId: HP_001_ID,
+        from: FROM,
+        to: TO,
+        canonicalTagName: 'p_inlet',
+        bucket: '1m',
+      }),
+    ).rejects.toBeInstanceOf(RvfApiError);
+  });
+
+  it('rejects aggregate without bucket (mirrors backend Zod refine)', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    stubFetchThatThrows();
+
+    await expect(
+      adapterGetTelemetryTrends({
+        unitId: HP_001_ID,
+        from: FROM,
+        to: TO,
+        canonicalTagName: 'p_inlet',
+        aggregate: 'avg',
+      }),
+    ).rejects.toBeInstanceOf(RvfApiError);
+  });
+
+  it('rejects qualityPolicy without bucket (mirrors backend Zod refine)', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    stubFetchThatThrows();
+
+    await expect(
+      adapterGetTelemetryTrends({
+        unitId: HP_001_ID,
+        from: FROM,
+        to: TO,
+        canonicalTagName: 'p_inlet',
+        qualityPolicy: 'good_only',
+      }),
+    ).rejects.toBeInstanceOf(RvfApiError);
+  });
+
   it('returns the empty-envelope shape for a known tag with no fixture (e.g. LP-001 / vib_x)', async () => {
     delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
     stubFetchThatThrows();
@@ -351,6 +396,44 @@ describe('telemetry-trends adapter — api mode', () => {
     expect(url).toContain('quality=good');
     expect(url).toContain('source=mock');
     expect(url).toContain('limit=100');
+  });
+
+  it('forwards bucketed-mode params (bucket / aggregate / qualityPolicy)', async () => {
+    process.env.NEXT_PUBLIC_RVF_DATA_SOURCE = 'api';
+    const fetchMock = stubFetchOk({
+      unitId: HP_001_ID,
+      canonicalTag: {
+        id: 'tag-1',
+        name: 'p_inlet',
+        displayName: 'Inlet pressure',
+        canonicalUnit: 'psi',
+        category: 'pressure',
+        precision: 1,
+      },
+      range: { from: FROM, to: TO },
+      points: [],
+      bucket: '5m',
+      aggregate: 'avg',
+      qualityPolicy: 'good_only',
+      buckets: [{ bucketStart: FROM, bucketEnd: TO, value: 3800.0, sampleCount: 60 }],
+    });
+
+    await adapterGetTelemetryTrends({
+      unitId: HP_001_ID,
+      from: FROM,
+      to: TO,
+      canonicalTagName: 'p_inlet',
+      bucket: '5m',
+      aggregate: 'avg',
+      qualityPolicy: 'good_only',
+    });
+
+    const url = fetchMock.mock.calls[0]?.[0];
+    expect(typeof url).toBe('string');
+    if (typeof url !== 'string') return;
+    expect(url).toContain('bucket=5m');
+    expect(url).toContain('aggregate=avg');
+    expect(url).toContain('qualityPolicy=good_only');
   });
 
   it('api error surfaces as RvfApiError (no silent fallback to mock)', async () => {

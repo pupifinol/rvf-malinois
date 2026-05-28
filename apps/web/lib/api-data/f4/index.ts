@@ -51,6 +51,14 @@ export {
   isTelemetryTrendEmpty,
   MOCK_F4_TRENDS_RANGE,
 } from './telemetry';
+export {
+  type ChartSeries,
+  type ChartSeriesOptions,
+  type LatestPoint,
+  trendsToChartSeries,
+  trendsLatestPoint,
+  isChartSeriesEmpty,
+} from './trendsToChartSeries';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.

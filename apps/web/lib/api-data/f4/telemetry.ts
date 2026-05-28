@@ -134,6 +134,24 @@ const adapterGetTelemetryTrendsMock = (
     );
   }
 
+  // F4.6F.1 refines — mirror them client-side so a mock-mode caller fails the
+  // same way the backend would in api mode.
+  if (params.bucket !== undefined && params.aggregate === undefined) {
+    return Promise.reject(
+      new RvfApiError(400, MOCK_URL, null, '`aggregate` is required when `bucket` is provided'),
+    );
+  }
+  if (params.aggregate !== undefined && params.bucket === undefined) {
+    return Promise.reject(
+      new RvfApiError(400, MOCK_URL, null, '`bucket` is required when `aggregate` is provided'),
+    );
+  }
+  if (params.qualityPolicy !== undefined && params.bucket === undefined) {
+    return Promise.reject(
+      new RvfApiError(400, MOCK_URL, null, '`qualityPolicy` requires `bucket` to be provided'),
+    );
+  }
+
   const fromIso = typeof params.from === 'string' ? params.from : params.from.toISOString();
   const toIso = typeof params.to === 'string' ? params.to : params.to.toISOString();
   if (Date.parse(fromIso) >= Date.parse(toIso)) {
