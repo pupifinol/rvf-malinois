@@ -6,6 +6,16 @@ export { useHistoryBuffer } from './useHistoryBuffer';
 export { useLiveValue, type UseLiveValueOptions } from './useLiveValue';
 export { useNowTick } from './useNowTick';
 export {
+  isUuidShaped,
+  useOperationsRealtimeF4,
+  type OperationsRealtimeConnection,
+  type OperationsRealtimeSource,
+  type SlotLiveValue,
+  type TrackedSlot,
+  type UseOperationsRealtimeF4Input,
+  type UseOperationsRealtimeF4Result,
+} from './useOperationsRealtimeF4';
+export {
   useOperationsTrendSeries,
   policyForWindow,
   TREND_WINDOWS,

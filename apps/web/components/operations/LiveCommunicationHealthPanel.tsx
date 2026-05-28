@@ -20,7 +20,7 @@
 import { cn } from '@rvf/ui';
 
 import { Panel } from '@/components/shell/Panel';
-import { useConnectionStatus } from '@/lib/hooks';
+import { useConnectionStatus, useOperationsRealtimeF4 } from '@/lib/hooks';
 
 type RowStatus = 'normal' | 'warn' | 'stale' | 'info';
 
@@ -38,8 +38,18 @@ const statusStyles: Record<RowStatus, { dot: string; text: string }> = {
   info: { dot: 'bg-status-info', text: 'text-status-info' },
 };
 
+const formatHHMMSS = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss} UTC`;
+};
+
 export const LiveCommunicationHealthPanel = () => {
   const conn = useConnectionStatus();
+  const f4 = useOperationsRealtimeF4();
 
   const streamRow: Row =
     conn.kind === 'connected'
@@ -47,6 +57,61 @@ export const LiveCommunicationHealthPanel = () => {
       : conn.kind === 'reconnecting'
         ? { id: 'stream', label: 'Normalized Stream', status: 'warn', value: 'RECONNECTING' }
         : { id: 'stream', label: 'Normalized Stream', status: 'stale', value: 'DISCONNECTED' };
+
+  // F4.5G.2.1 — honest Backend WebSocket row driven by the F4-aware hook.
+  // Mock mode shows `NOT CONNECTED · MOCK MODE` so simulator data is never
+  // silently labeled as live backend (ADR-005 "never lie about freshness").
+  const backendRow: Row = (() => {
+    if (!f4.enabled) {
+      return {
+        id: 'backend-ws',
+        label: 'Backend WebSocket',
+        status: 'stale',
+        value: 'NOT CONNECTED · MOCK MODE',
+      };
+    }
+    switch (f4.connection.kind) {
+      case 'connected':
+        return {
+          id: 'backend-ws',
+          label: 'Backend WebSocket',
+          status: 'normal',
+          value: 'CONNECTED · F4.6E.1',
+        };
+      case 'connecting':
+        return {
+          id: 'backend-ws',
+          label: 'Backend WebSocket',
+          status: 'warn',
+          value: 'CONNECTING',
+        };
+      case 'reconnecting':
+        return {
+          id: 'backend-ws',
+          label: 'Backend WebSocket',
+          status: 'warn',
+          value: `RECONNECTING (attempt ${String(f4.connection.attempt)})`,
+        };
+      case 'disconnected': {
+        const tail = f4.connection.lastDataAt
+          ? ` · LAST EVENT ${formatHHMMSS(f4.connection.lastDataAt)}`
+          : '';
+        return {
+          id: 'backend-ws',
+          label: 'Backend WebSocket',
+          status: 'stale',
+          value: `DISCONNECTED${tail}`,
+        };
+      }
+      case 'disabled':
+        return {
+          id: 'backend-ws',
+          label: 'Backend WebSocket',
+          status: 'stale',
+          value: 'NOT CONNECTED · MOCK MODE',
+        };
+    }
+  })();
 
   const rows: Row[] = [
     streamRow,
@@ -56,12 +121,7 @@ export const LiveCommunicationHealthPanel = () => {
       status: conn.kind === 'connected' ? 'info' : 'stale',
       value: conn.kind === 'connected' ? 'ACTIVE (DEV)' : 'IDLE',
     },
-    {
-      id: 'backend-ws',
-      label: 'Backend WebSocket',
-      status: 'stale',
-      value: 'NOT CONNECTED',
-    },
+    backendRow,
     {
       id: 'protocols',
       label: 'Field Protocols',
