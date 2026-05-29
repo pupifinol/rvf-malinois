@@ -49,6 +49,8 @@ import type {
   UnitConfigurationRow,
   UnitOperatingEnvelopeRow,
   Well,
+  WellTestDetail,
+  WellTestRow,
 } from '@/lib/api/f4';
 
 const MOCK_TIMESTAMP = '2026-05-24T00:00:00.000Z';
@@ -1292,3 +1294,125 @@ export const MOCK_F4_ALARM_EVENTS: Readonly<Record<string, readonly AlarmEventRo
     [HP_001_ID]: HP_001_ALARM_EVENTS,
     [LP_001_ID]: LP_001_ALARM_EVENTS,
   });
+
+// =============================================================================
+// Well tests — F4.7.1
+// =============================================================================
+//
+// Mirrors the F4.7-0 §12.1 / §13 narrow fixture set: HP-001 carries one
+// `measuring` test (an in-progress Fiscalización certification) + one
+// `scheduled` test (a planned Optimización follow-up). LP-001 carries no
+// well tests today because the F4.3 seed mints no Job for LP-001 — the
+// `REFERENCE_JOB_ID` anchors HP-001 only. Synthesizing a fixture-only Job
+// for LP-001 would invent state the seed does not produce; the adapter's
+// "unknown unit → empty array" path covers the LP-001 mock honestly.
+//
+// `tenantId` is intentionally NOT in the WellTestRow type — wire shape per
+// F4.7-0 §14.1. The `createdAt` / `updatedAt` ISO-8601 strings match
+// `MOCK_TIMESTAMP` for determinism.
+
+const WELL_TEST_FISC_MEASURING_ID = `00000000-0000-0000-0000-${hashSuffix(
+  `well-test:${REFERENCE_JOB_ID}:fiscalizacion:measuring`,
+)}`;
+
+const WELL_TEST_OPT_SCHEDULED_ID = `00000000-0000-0000-0000-${hashSuffix(
+  `well-test:${REFERENCE_JOB_ID}:optimizacion:scheduled`,
+)}`;
+
+const WELL_TEST_MEASURING_CONNECTED_AT = '2026-05-29T08:00:00.000Z';
+const WELL_TEST_MEASURING_STABILIZATION_STARTED_AT = '2026-05-29T08:05:00.000Z';
+const WELL_TEST_MEASURING_OFFICIAL_STARTED_AT = '2026-05-29T09:05:00.000Z';
+
+const HP_001_WELL_TEST_FISC_MEASURING: WellTestRow = Object.freeze({
+  id: WELL_TEST_FISC_MEASURING_ID,
+  jobId: REFERENCE_JOB_ID,
+  wellId: REFERENCE_WELL_ID,
+  unitId: HP_001_ID,
+  testType: 'fiscalizacion',
+  reportType: 'fiscalizacion_pdf',
+  lifecycleStatus: 'measuring',
+  plannedOfficialDurationHours: 24,
+  actualOfficialDurationSeconds: null,
+  connectedAt: WELL_TEST_MEASURING_CONNECTED_AT,
+  stabilizationStartedAt: WELL_TEST_MEASURING_STABILIZATION_STARTED_AT,
+  stabilizationEndedAt: WELL_TEST_MEASURING_OFFICIAL_STARTED_AT,
+  officialStartedAt: WELL_TEST_MEASURING_OFFICIAL_STARTED_AT,
+  officialEndedAt: null,
+  disconnectedAt: null,
+  reportGeneratedAt: null,
+  abortedAt: null,
+  abortReason: null,
+  notes: 'Fiscalización certification — ministry reporting cycle.',
+  clientReference: 'PZ-1023 / Q2 2026',
+  createdAt: WELL_TEST_MEASURING_CONNECTED_AT,
+  updatedAt: WELL_TEST_MEASURING_OFFICIAL_STARTED_AT,
+});
+
+const HP_001_WELL_TEST_OPT_SCHEDULED: WellTestRow = Object.freeze({
+  id: WELL_TEST_OPT_SCHEDULED_ID,
+  jobId: REFERENCE_JOB_ID,
+  wellId: REFERENCE_WELL_ID,
+  unitId: HP_001_ID,
+  testType: 'optimizacion',
+  reportType: 'optimizacion_pdf',
+  lifecycleStatus: 'scheduled',
+  plannedOfficialDurationHours: 18,
+  actualOfficialDurationSeconds: null,
+  connectedAt: null,
+  stabilizationStartedAt: null,
+  stabilizationEndedAt: null,
+  officialStartedAt: null,
+  officialEndedAt: null,
+  disconnectedAt: null,
+  reportGeneratedAt: null,
+  abortedAt: null,
+  abortReason: null,
+  notes: 'Follow-up optimization study after Fiscalización closes.',
+  clientReference: 'PZ-1023 / Q2 2026 / OPT',
+  createdAt: MOCK_TIMESTAMP,
+  updatedAt: MOCK_TIMESTAMP,
+});
+
+const HP_001_WELL_TESTS: readonly WellTestRow[] = Object.freeze([
+  // Newest first (matches the backend's `createdAt DESC` ordering).
+  HP_001_WELL_TEST_FISC_MEASURING,
+  HP_001_WELL_TEST_OPT_SCHEDULED,
+]);
+
+const LP_001_WELL_TESTS: readonly WellTestRow[] = Object.freeze([]);
+
+/** Lookup keyed by `MeasurementUnit.id` so the mock adapter's `unitId`
+ *  filter is a single object lookup. Unknown units fall through to an empty
+ *  array (matches the F4.4F empty-array posture; never 404). */
+export const MOCK_F4_WELL_TESTS: Readonly<Record<string, readonly WellTestRow[]>> = Object.freeze({
+  [HP_001_ID]: HP_001_WELL_TESTS,
+  [LP_001_ID]: LP_001_WELL_TESTS,
+});
+
+/** Detail-shape lookup keyed by `WellTest.id`. Each detail hydrates the
+ *  `job` / `well` / `unit` nested summaries from the existing F4.5C / F4.5D
+ *  fixture data so the wire shape is byte-equivalent to the api branch. */
+export const MOCK_F4_WELL_TEST_DETAILS: Readonly<Record<string, WellTestDetail>> = Object.freeze({
+  [WELL_TEST_FISC_MEASURING_ID]: {
+    ...HP_001_WELL_TEST_FISC_MEASURING,
+    job: {
+      id: REFERENCE_JOB_ID,
+      status: 'in_progress',
+      startedAt: REFERENCE_JOB_STARTED_AT,
+      closedAt: null,
+    },
+    well: { id: REFERENCE_WELL_ID, name: 'PZ-1023', fieldOrSite: 'Field-A' },
+    unit: { id: HP_001_ID, code: 'HP-001', name: 'High Pressure / High Flow Test Unit' },
+  },
+  [WELL_TEST_OPT_SCHEDULED_ID]: {
+    ...HP_001_WELL_TEST_OPT_SCHEDULED,
+    job: {
+      id: REFERENCE_JOB_ID,
+      status: 'in_progress',
+      startedAt: REFERENCE_JOB_STARTED_AT,
+      closedAt: null,
+    },
+    well: { id: REFERENCE_WELL_ID, name: 'PZ-1023', fieldOrSite: 'Field-A' },
+    unit: { id: HP_001_ID, code: 'HP-001', name: 'High Pressure / High Flow Test Unit' },
+  },
+});

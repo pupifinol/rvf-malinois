@@ -29,7 +29,14 @@ export { RvfApiError } from './errors';
 
 // Low-level client (exported for tests + bespoke callers; most consumers
 // should prefer the typed endpoint wrappers below).
-export { buildUrl, getJson, type GetOptions, type QueryParams, type QueryValue } from './client';
+export {
+  buildUrl,
+  getJson,
+  postJson,
+  type GetOptions,
+  type QueryParams,
+  type QueryValue,
+} from './client';
 
 // Typed endpoint wrappers.
 export {
@@ -41,6 +48,12 @@ export {
   type GetTelemetryTrendsParams,
   type GetTelemetryLatestParams,
   type GetAlarmEventsParams,
+  type ListWellTestsParams,
+  type GetActiveWellTestParams,
+  type CreateWellTestPayload,
+  type WellTestTransitionPayload,
+  type AbortWellTestPayload,
+  type CloseWellTestPayload,
   listTenants,
   getTenant,
   listWells,
@@ -56,6 +69,16 @@ export {
   getTelemetryTrends,
   getTelemetryLatest,
   getAlarmEvents,
+  listWellTests,
+  getWellTestById,
+  getActiveWellTest,
+  createWellTest,
+  connectWellTest,
+  startWellTestStabilization,
+  startWellTestOfficial,
+  endWellTestOfficial,
+  abortWellTest,
+  closeWellTest,
 } from './endpoints';
 
 // Frontend types.
@@ -101,4 +124,14 @@ export type {
   AlarmEventThresholdBand,
   AlarmEventRow,
   AlarmEventsResponse,
+  WellTestType,
+  WellTestReportType,
+  WellTestLifecycleStatus,
+  WellTestRow,
+  WellTestJobSummary,
+  WellTestWellSummary,
+  WellTestUnitSummary,
+  WellTestDetail,
+  WellTestsListResponse,
+  WellTestActiveResponse,
 } from './types';

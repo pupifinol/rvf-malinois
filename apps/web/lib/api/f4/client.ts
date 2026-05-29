@@ -132,3 +132,60 @@ export async function getJson<T, P extends object = object>(
 
   return body as T;
 }
+
+/**
+ * Issue a `POST` to `<baseUrl><path>` with a JSON body and decode the JSON
+ * response. Mirrors `getJson` for error / body parsing semantics.
+ *
+ * F4.7.1 — first POST surface in the F4 API foundation. The well-test
+ * lifecycle transition endpoints are the first consumers.
+ *
+ * @throws {RvfApiError} on network / parse / non-2xx response.
+ */
+export async function postJson<T, B = unknown>(
+  path: string,
+  body: B,
+  options?: GetOptions,
+): Promise<T> {
+  const url = buildUrl(options?.baseUrl ?? getApiBaseUrl(), path);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body ?? {}),
+      signal: options?.signal,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Network error';
+    throw new RvfApiError(0, url, null, message);
+  }
+
+  let parsed: unknown = null;
+  const text = await response.text();
+  if (text.length > 0) {
+    if (looksLikeJson(response.headers.get('content-type'))) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    } else {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    }
+  }
+
+  if (!response.ok) {
+    throw new RvfApiError(response.status, url, parsed);
+  }
+
+  return parsed as T;
+}

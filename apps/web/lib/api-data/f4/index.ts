@@ -70,6 +70,29 @@ export {
   type GetAlarmEventsParams,
   adapterGetAlarmEvents,
 } from './alarms';
+export {
+  type CreateWellTestPayload,
+  type GetActiveWellTestParams,
+  type ListWellTestsParams,
+  type WellTestActiveResponse,
+  type WellTestDetail,
+  type WellTestRow,
+  type WellTestsListResponse,
+  type WellTestTransitionPayload,
+  type AbortWellTestPayload,
+  type CloseWellTestPayload,
+  adapterAbortWellTest,
+  adapterCloseWellTest,
+  adapterConnectWellTest,
+  adapterCreateWellTest,
+  adapterEndWellTestOfficial,
+  adapterGetActiveWellTest,
+  adapterGetWellTestById,
+  adapterListWellTests,
+  adapterStartWellTestOfficial,
+  adapterStartWellTestStabilization,
+  resetMockWellTestsStore,
+} from './well-tests';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.
@@ -86,4 +109,6 @@ export {
   MOCK_F4_TELEMETRY_TRENDS,
   MOCK_F4_TELEMETRY_LATEST,
   MOCK_F4_ALARM_EVENTS,
+  MOCK_F4_WELL_TESTS,
+  MOCK_F4_WELL_TEST_DETAILS,
 } from './mock-fixtures';

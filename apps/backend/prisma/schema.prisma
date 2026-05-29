@@ -72,6 +72,7 @@ model Tenant {
   auditLogs                AuditLog[]
   liveReadings             LiveReading[]
   telemetryIngestionErrors TelemetryIngestionError[]
+  wellTests                WellTest[]
 
   @@map("tenants")
 }
@@ -96,6 +97,8 @@ model User {
   alarmEventsAcknowledged       AlarmEvent[]            @relation("AlarmEventAcknowledgedBy")
   jobsEngineered                Job[]                   @relation("JobEngineer")
   auditLogs                     AuditLog[]              @relation("AuditLogActor")
+  wellTestsCreated              WellTest[]              @relation("WellTestCreatedBy")
+  wellTestsUpdated              WellTest[]              @relation("WellTestUpdatedBy")
 
   @@index([tenantId], map: "users_tenant_idx")
   @@map("users")
@@ -151,6 +154,7 @@ model MeasurementUnit {
   integrationMappings      IntegrationMapping[]
   liveReadings             LiveReading[]
   telemetryIngestionErrors TelemetryIngestionError[]
+  wellTests                WellTest[]
 
   @@unique([tenantId, code], map: "measurement_units_tenant_code_uk")
   @@index([tenantId], map: "measurement_units_tenant_idx")
@@ -456,8 +460,9 @@ model Well {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  jobs   Job[]
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  jobs      Job[]
+  wellTests WellTest[]
 
   @@index([tenantId], map: "wells_tenant_idx")
   @@map("wells")
@@ -489,6 +494,7 @@ model Job {
   alarmEvents            AlarmEvent[]
   telemetryReadings      TelemetryReading[]
   commissioningSnapshots CommissioningSnapshot[] @relation("CommissioningSnapshotJob")
+  wellTests              WellTest[]
 
   @@index([tenantId], map: "jobs_tenant_idx")
   @@index([wellId], map: "jobs_well_idx")
@@ -523,6 +529,62 @@ model CommissioningSnapshot {
   @@index([jobId], map: "commissioning_snapshots_job_idx")
   @@index([unitId], map: "commissioning_snapshots_unit_idx")
   @@map("commissioning_snapshots")
+}
+
+// =============================================================================
+// F.2. Well test job lifecycle (F4.7.1)
+// =============================================================================
+
+/// Official well test execution record (F4.7-0 Option B). Linked to the
+/// existing Job (deployment ledger). One Job can carry multiple WellTest
+/// rows over time (retest, recertification, repeat Optimización).
+/// `test_type` CHECK in ('fiscalizacion','optimizacion').
+/// `report_type` CHECK in ('fiscalizacion_pdf','optimizacion_pdf').
+/// `lifecycle_status` CHECK in ('scheduled','connected','stabilizing',
+///                              'measuring','completed','closed','aborted').
+/// Per-status non-null rules + per-test-type duration rules + temporal-ordering
+/// rules are enforced as named CHECK constraints in the migration SQL.
+/// `actualOfficialDurationSeconds` is **derived** at read time from
+/// `(official_ended_at - official_started_at)`; not stored.
+model WellTest {
+  id                           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                     String    @map("tenant_id") @db.Uuid
+  jobId                        String    @map("job_id") @db.Uuid
+  wellId                       String    @map("well_id") @db.Uuid
+  unitId                       String    @map("unit_id") @db.Uuid
+  testType                     String    @map("test_type")
+  reportType                   String    @map("report_type")
+  lifecycleStatus              String    @default("scheduled") @map("lifecycle_status")
+  plannedOfficialDurationHours Int       @map("planned_official_duration_hours")
+  connectedAt                  DateTime? @map("connected_at") @db.Timestamptz(6)
+  stabilizationStartedAt       DateTime? @map("stabilization_started_at") @db.Timestamptz(6)
+  stabilizationEndedAt         DateTime? @map("stabilization_ended_at") @db.Timestamptz(6)
+  officialStartedAt            DateTime? @map("official_started_at") @db.Timestamptz(6)
+  officialEndedAt              DateTime? @map("official_ended_at") @db.Timestamptz(6)
+  disconnectedAt               DateTime? @map("disconnected_at") @db.Timestamptz(6)
+  reportGeneratedAt            DateTime? @map("report_generated_at") @db.Timestamptz(6)
+  abortedAt                    DateTime? @map("aborted_at") @db.Timestamptz(6)
+  abortReason                  String?   @map("abort_reason")
+  notes                        String?
+  clientReference              String?   @map("client_reference")
+  createdBy                    String?   @map("created_by") @db.Uuid
+  updatedBy                    String?   @map("updated_by") @db.Uuid
+  createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  job           Job             @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  well          Well            @relation(fields: [wellId], references: [id], onDelete: Restrict)
+  unit          MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  createdByUser User?           @relation("WellTestCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedByUser User?           @relation("WellTestUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId], map: "well_tests_tenant_idx")
+  @@index([jobId], map: "well_tests_job_idx")
+  @@index([wellId], map: "well_tests_well_idx")
+  @@index([unitId, lifecycleStatus], map: "well_tests_unit_status_idx")
+  @@index([unitId, officialStartedAt(sort: Desc)], map: "well_tests_unit_official_time_idx")
+  @@map("well_tests")
 }
 
 // =============================================================================

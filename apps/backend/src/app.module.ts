@@ -12,6 +12,7 @@ import { CanonicalTagsModule } from './tags/tags.module';
 import { TelemetryIngestionModule } from './telemetry/ingestion/telemetry-ingestion.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { WellTestsModule } from './well-tests/well-tests.module';
 import { WellsModule } from './wells/wells.module';
 
 /**
@@ -90,6 +91,7 @@ const optionalIngestionModule = (): (DynamicModule | typeof TelemetryIngestionMo
     JobsModule,
     TelemetryModule,
     AlarmsModule,
+    WellTestsModule,
     ...optionalIngestionModule(),
   ],
 })

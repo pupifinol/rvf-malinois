@@ -374,9 +374,13 @@ describe('TrendDrawer — window-aware fallback (F4.5G.2.2.2)', () => {
   const sevenMinuteHistory = () =>
     Array.from({ length: 7 }, (_, i) => nowRelative((6 - i) * 60_000, 3800 + i * 5));
 
-  // 10 readings ten minutes apart, ending at `now` → buffer spans ~90 min.
+  // 10 readings ten minutes apart, ending at `now - 1 min`. The 1-minute
+  // offset shifts every reading off the round-minute window edges (15m, 60m,
+  // 6h) so a few-millisecond clock drift between the reading-construction
+  // `Date.now()` and the drawer's filter `Date.now()` cannot bump a boundary
+  // reading across the edge.
   const ninetyMinuteHistory = () =>
-    Array.from({ length: 10 }, (_, i) => nowRelative((9 - i) * 10 * 60_000, 3800 + i * 5));
+    Array.from({ length: 10 }, (_, i) => nowRelative((9 - i) * 10 * 60_000 + 60_000, 3800 + i * 5));
 
   it('range pills filter the fallback series by window edge', async () => {
     delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
@@ -390,12 +394,12 @@ describe('TrendDrawer — window-aware fallback (F4.5G.2.2.2)', () => {
     await screen.findByRole('dialog');
 
     // Default window is 1h → readings older than 60 min are filtered out.
-    // 90-min history at 10-min steps → 7 readings inside 1 h (60, 50, 40,
-    // 30, 20, 10, 0 min ago).
+    // Offsets are 91, 81, 71, 61, 51, 41, 31, 21, 11, 1 min ago → 6 readings
+    // inside 1 h (51, 41, 31, 21, 11, 1).
     const count1h = (await screen.findByTestId('trend-drawer-stat-count')).textContent;
-    expect(count1h).toBe('7');
+    expect(count1h).toBe('6');
 
-    // Switch to 15m → only readings ≤ 15 min old remain (10, 0 min ago).
+    // Switch to 15m → only readings ≤ 15 min old remain (11, 1 min ago).
     act(() => {
       screen.getByTestId('trend-drawer-range-15m').click();
     });

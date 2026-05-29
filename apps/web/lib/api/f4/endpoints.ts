@@ -12,7 +12,7 @@
  * `./config.ts` for the data-source switch.
  */
 
-import { getJson, type GetOptions } from './client';
+import { getJson, postJson, type GetOptions } from './client';
 
 import type {
   AlarmEventSeverity,
@@ -36,6 +36,12 @@ import type {
   TrendBucketSize,
   TrendQualityPolicy,
   Well,
+  WellTestActiveResponse,
+  WellTestDetail,
+  WellTestLifecycleStatus,
+  WellTestReportType,
+  WellTestType,
+  WellTestsListResponse,
 } from './types';
 
 // =============================================================================
@@ -225,3 +231,152 @@ export const getAlarmEvents = (
   params: GetAlarmEventsParams,
   options?: GetOptions,
 ): Promise<AlarmEventsResponse> => getJson<AlarmEventsResponse>('/alarms/events', params, options);
+
+// =============================================================================
+// Well tests — F4.7.1
+// =============================================================================
+
+/**
+ * Well-tests list query.
+ *
+ * All filters optional. Tenant scoping is server-derived from the
+ * `CallerContext`; **`tenantId` is intentionally absent** from the wire.
+ * `from` / `to` (ISO-8601 or Date) filter `officialStartedAt` and must
+ * appear together with `from < to`.
+ */
+export interface ListWellTestsParams {
+  unitId?: string;
+  wellId?: string;
+  jobId?: string;
+  lifecycleStatus?: WellTestLifecycleStatus;
+  testType?: WellTestType;
+  from?: Date | string;
+  to?: Date | string;
+  /** Defaults to 50 on the backend; max 200. */
+  limit?: number;
+}
+
+export const listWellTests = (
+  params?: ListWellTestsParams,
+  options?: GetOptions,
+): Promise<WellTestsListResponse> => getJson<WellTestsListResponse>('/well-tests', params, options);
+
+export const getWellTestById = (id: string, options?: GetOptions): Promise<WellTestDetail> =>
+  getJson<WellTestDetail>(`/well-tests/${encodeURIComponent(id)}`, undefined, options);
+
+export interface GetActiveWellTestParams {
+  unitId: string;
+}
+
+export const getActiveWellTest = (
+  params: GetActiveWellTestParams,
+  options?: GetOptions,
+): Promise<WellTestActiveResponse> =>
+  getJson<WellTestActiveResponse>('/well-tests/active', params, options);
+
+/**
+ * Create-well-test wire payload. **`tenantId` is never on the wire** —
+ * derived server-side from the referenced `Job`. Fiscalización requires
+ * `plannedOfficialDurationHours === 24` and `reportType ===
+ * 'fiscalizacion_pdf'`. Optimización requires `plannedOfficialDurationHours
+ * BETWEEN 12 AND 24` and `reportType === 'optimizacion_pdf'`. Both refines
+ * are enforced server-side (Zod + DB CHECK).
+ */
+export interface CreateWellTestPayload {
+  jobId: string;
+  wellId: string;
+  unitId: string;
+  testType: WellTestType;
+  reportType: WellTestReportType;
+  plannedOfficialDurationHours: number;
+  notes?: string;
+  clientReference?: string;
+}
+
+export const createWellTest = (
+  payload: CreateWellTestPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, CreateWellTestPayload>('/well-tests', payload, options);
+
+/** Optional notes patch on a lifecycle transition. */
+export interface WellTestTransitionPayload {
+  notes?: string;
+}
+
+export interface AbortWellTestPayload {
+  abortReason: string;
+  notes?: string;
+}
+
+export interface CloseWellTestPayload {
+  notes?: string;
+  /** ISO-8601. Optional — only set when a Reports PDF has already landed. */
+  reportGeneratedAt?: Date | string;
+}
+
+export const connectWellTest = (
+  id: string,
+  payload?: WellTestTransitionPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, WellTestTransitionPayload>(
+    `/well-tests/${encodeURIComponent(id)}/connect`,
+    payload ?? {},
+    options,
+  );
+
+export const startWellTestStabilization = (
+  id: string,
+  payload?: WellTestTransitionPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, WellTestTransitionPayload>(
+    `/well-tests/${encodeURIComponent(id)}/start-stabilization`,
+    payload ?? {},
+    options,
+  );
+
+export const startWellTestOfficial = (
+  id: string,
+  payload?: WellTestTransitionPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, WellTestTransitionPayload>(
+    `/well-tests/${encodeURIComponent(id)}/start-official`,
+    payload ?? {},
+    options,
+  );
+
+export const endWellTestOfficial = (
+  id: string,
+  payload?: WellTestTransitionPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, WellTestTransitionPayload>(
+    `/well-tests/${encodeURIComponent(id)}/end-official`,
+    payload ?? {},
+    options,
+  );
+
+export const abortWellTest = (
+  id: string,
+  payload: AbortWellTestPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, AbortWellTestPayload>(
+    `/well-tests/${encodeURIComponent(id)}/abort`,
+    payload,
+    options,
+  );
+
+export const closeWellTest = (
+  id: string,
+  payload?: CloseWellTestPayload,
+  options?: GetOptions,
+): Promise<WellTestDetail> =>
+  postJson<WellTestDetail, CloseWellTestPayload>(
+    `/well-tests/${encodeURIComponent(id)}/close`,
+    payload ?? {},
+    options,
+  );

@@ -507,3 +507,103 @@ export interface AlarmEventsResponse {
   /** Zero or more rows, ordered by `firstTriggeredAt DESC`. */
   events: AlarmEventRow[];
 }
+
+// =============================================================================
+// Well tests — F4.7.1
+// =============================================================================
+
+/** Test-type enum — matches `well_tests.test_type` CHECK. */
+export type WellTestType = 'fiscalizacion' | 'optimizacion';
+
+/** Report-type enum — matches `well_tests.report_type` CHECK. */
+export type WellTestReportType = 'fiscalizacion_pdf' | 'optimizacion_pdf';
+
+/** Lifecycle-status enum — matches `well_tests.lifecycle_status` CHECK
+ *  (8-state engineer-driven lifecycle per F4.7-0 §5). */
+export type WellTestLifecycleStatus =
+  | 'scheduled'
+  | 'connected'
+  | 'stabilizing'
+  | 'measuring'
+  | 'completed'
+  | 'closed'
+  | 'aborted';
+
+/**
+ * One row of the well-tests list / detail response. Derived view of the
+ * backend `well_tests` row — `tenantId`, `createdBy`, `updatedBy` are
+ * intentionally not on the wire (per F4.7-0 §14.1). `actualOfficialDurationSeconds`
+ * is **derived** server-side from `(officialEndedAt - officialStartedAt)`;
+ * `null` until the test reaches `completed` / `closed`.
+ */
+export interface WellTestRow {
+  id: string;
+  jobId: string;
+  wellId: string;
+  unitId: string;
+  testType: WellTestType;
+  reportType: WellTestReportType;
+  lifecycleStatus: WellTestLifecycleStatus;
+  plannedOfficialDurationHours: number;
+  /** Derived. `null` until the test reaches `completed`. */
+  actualOfficialDurationSeconds: number | null;
+  /** ISO-8601. `null` until the matching transition has fired. */
+  connectedAt: string | null;
+  stabilizationStartedAt: string | null;
+  stabilizationEndedAt: string | null;
+  officialStartedAt: string | null;
+  officialEndedAt: string | null;
+  disconnectedAt: string | null;
+  reportGeneratedAt: string | null;
+  abortedAt: string | null;
+  abortReason: string | null;
+  notes: string | null;
+  clientReference: string | null;
+  /** ISO-8601 — operational metadata for audit / Reports. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Nested summaries the detail endpoint hydrates from `Job` / `Well` /
+ *  `MeasurementUnit` (mirrors the F4.4E Jobs detail pattern). */
+export interface WellTestJobSummary {
+  id: string;
+  status: string;
+  startedAt: string | null;
+  closedAt: string | null;
+}
+
+export interface WellTestWellSummary {
+  id: string;
+  name: string;
+  fieldOrSite: string | null;
+}
+
+export interface WellTestUnitSummary {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface WellTestDetail extends WellTestRow {
+  job: WellTestJobSummary;
+  well: WellTestWellSummary;
+  unit: WellTestUnitSummary;
+}
+
+export interface WellTestsListResponse {
+  /** ISO-8601 — server-side response-generation time. */
+  generatedAt: string;
+  /** Constant string identifying the read source. */
+  source: 'well_tests';
+  /** Zero or more rows, ordered by `createdAt DESC`. */
+  wellTests: WellTestRow[];
+}
+
+export interface WellTestActiveResponse {
+  generatedAt: string;
+  source: 'well_tests';
+  /** The most recent row in `connected | stabilizing | measuring` for the
+   *  queried unit, or `null` when none. */
+  active: WellTestRow | null;
+}
