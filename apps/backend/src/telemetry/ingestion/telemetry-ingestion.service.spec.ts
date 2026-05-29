@@ -683,17 +683,26 @@ describe('TelemetryIngestionService.ingestBatch', () => {
     expect(mocks.liveReadingUpdateMany).not.toHaveBeenCalled();
   });
 
-  // --- 18. isolation: ingestion service does not call prisma.alarmEvent.* directly
-  it('18. isolation: ingestion service does not call prisma.alarmEvent.* / prisma.alarmRule.* directly (delegates to alarm evaluator)', async () => {
+  // --- 18. isolation: ingestion service does not write prisma.alarmEvent.* directly
+  it('18. isolation: ingestion service does not write prisma.alarmEvent.* / prisma.alarmRule.* directly (delegates to alarm evaluator)', async () => {
     mocks.integrationSourceFindUnique.mockResolvedValueOnce(sourceFixture());
     mocks.integrationMappingFindUnique.mockResolvedValueOnce(mappingFixture());
     mocks.telemetryReadingCreate.mockResolvedValueOnce({ id: READING_ID });
 
     await service.ingestBatch(SystemContext, batchFixture(), NOW);
 
-    // F4.6D.1 refinement of the legacy "never calls alarmEventCreate"
-    // invariant: alarm writes go through the injected AlarmEvaluationService,
-    // never via prisma.alarmEvent.* or prisma.alarmRule.* on this service.
+    // F4.6D.2.1 narrowing: the write-isolation invariant for the ingestion
+    // service is `create / update / updateMany / upsert / delete` — the
+    // alarm evaluator service (F4.6D.1) remains the only authorized writer
+    // of `alarm_events`. **Read** access to `alarm_events` is now permitted
+    // at the module level (the new F4.6D.2.1 `AlarmEventsReadService` is the
+    // second backend module to touch the table — read-only; see
+    // `apps/backend/src/alarms/alarm-events-read.service.spec.ts` for its
+    // own write-isolation assertion). The ingestion service itself still
+    // neither writes nor reads `alarm_events` / `alarm_rules` directly, but
+    // the assertions below remain — the ingestion path is observed and the
+    // legacy `findFirst` / `findMany` calls would still be regressions for
+    // *this* service even though reads are permitted elsewhere.
     expect(mocks.alarmEventCreate).not.toHaveBeenCalled();
     expect(mocks.alarmEventFindFirst).not.toHaveBeenCalled();
     expect(mocks.alarmRuleFindMany).not.toHaveBeenCalled();

@@ -29,6 +29,7 @@
  */
 
 import type {
+  AlarmEventRow,
   AlarmRuleWithTag,
   CanonicalTag,
   CommissioningSnapshot,
@@ -1229,4 +1230,65 @@ export const MOCK_F4_TELEMETRY_LATEST: Readonly<Record<string, readonly Telemetr
   Object.freeze({
     [HP_001_ID]: HP_001_LATEST,
     [LP_001_ID]: LP_001_LATEST,
+  });
+
+// =============================================================================
+// Alarm events — F4.6D.2.1
+// =============================================================================
+//
+// Narrow deterministic set so the dual-mode adapter has something honest to
+// return in mock mode. Mirrors the F4.6C.2.1 latest-value fixture posture:
+//
+//   - HP-001 — one `active` `warning` event on `p_inlet` (the `high` band
+//     was crossed at value 4612.0, above the 4500 warning-high threshold
+//     seeded by HP_001_ALARM_SEEDS). The `alarmRuleId` is computed via the
+//     same `hashSuffix` helper that builds the alarm-rule IDs, so a future
+//     UI consumer can join the event back to the seeded rule.
+//   - LP-001 — empty list (the unit has alarm rules but is not in a
+//     triggered state in the mock posture).
+//
+// Lifecycle columns are `null` — F4.6D.1 writes only `state='active'` today.
+
+const HP_001_P_INLET_WARNING_RULE_ID = `00000000-0000-0000-0000-${hashSuffix(
+  `alarm:${HP_001_ID}:p_inlet:warning`,
+)}`;
+
+const HP_001_ALARM_EVENT_ID = `00000000-0000-0000-0000-${hashSuffix(
+  `alarm-event:${HP_001_ID}:p_inlet:warning:1`,
+)}`;
+
+const ALARM_EVENT_TRIGGERED_AT = LATEST_TIMESTAMP;
+
+const HP_001_ALARM_EVENTS: readonly AlarmEventRow[] = Object.freeze([
+  {
+    alarmEventId: HP_001_ALARM_EVENT_ID,
+    unitId: HP_001_ID,
+    canonicalTag: tagSummaryForLatest('p_inlet'),
+    alarmRuleId: HP_001_P_INLET_WARNING_RULE_ID,
+    severity: 'warning',
+    state: 'active',
+    triggeredValue: '4612.0',
+    thresholdViolated: 'high',
+    firstTriggeredAt: ALARM_EVENT_TRIGGERED_AT,
+    acknowledgedAt: null,
+    acknowledgedBy: null,
+    clearedAt: null,
+  },
+]);
+
+const LP_001_ALARM_EVENTS: readonly AlarmEventRow[] = Object.freeze([]);
+
+/**
+ * Lookup table keyed by `MeasurementUnit.id`. Used by the
+ * `adapterGetAlarmEvents` mock branch. Unknown units fall through to the
+ * empty envelope (matches the F4.4F empty-array posture; never 404).
+ *
+ * Narrow set on purpose — F4.6D.2.1 is a backend + adapter phase, not a
+ * fixture-coverage phase. Subsequent UI phases extend this map as they
+ * need more triggered scenarios.
+ */
+export const MOCK_F4_ALARM_EVENTS: Readonly<Record<string, readonly AlarmEventRow[]>> =
+  Object.freeze({
+    [HP_001_ID]: HP_001_ALARM_EVENTS,
+    [LP_001_ID]: LP_001_ALARM_EVENTS,
   });

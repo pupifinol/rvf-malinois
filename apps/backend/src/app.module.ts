@@ -1,6 +1,7 @@
 import { type DynamicModule, Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 
+import { AlarmsModule } from './alarms/alarms.module';
 import { ConfigModule } from './config/config.module';
 import { EquipmentModule } from './equipment/equipment.module';
 import { HealthModule } from './health/health.module';
@@ -88,6 +89,7 @@ const optionalIngestionModule = (): (DynamicModule | typeof TelemetryIngestionMo
     EquipmentModule,
     JobsModule,
     TelemetryModule,
+    AlarmsModule,
     ...optionalIngestionModule(),
   ],
 })

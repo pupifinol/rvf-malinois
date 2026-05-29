@@ -15,6 +15,9 @@
 import { getJson, type GetOptions } from './client';
 
 import type {
+  AlarmEventSeverity,
+  AlarmEventState,
+  AlarmEventsResponse,
   CanonicalTag,
   EquipmentType,
   JobDetail,
@@ -190,3 +193,35 @@ export const getTelemetryLatest = (
   options?: GetOptions,
 ): Promise<TelemetryLatestResponse> =>
   getJson<TelemetryLatestResponse>('/telemetry/latest', params, options);
+
+// =============================================================================
+// Alarm events — F4.6D.2.1
+// =============================================================================
+
+/**
+ * Alarm-events query.
+ *
+ * All parameters optional; the backend applies defaults `state='active'`
+ * and `limit=100`. At most one of `canonicalTagId` / `canonicalTagName`
+ * (the backend Zod XOR rejects both together). `from`/`to` must appear
+ * together with `from < to` (backend refine).
+ *
+ * `tenantId` is intentionally absent — tenant scoping is server-derived
+ * from the `CallerContext`, never trusted from the client (F4.6D.2-0 §11).
+ */
+export interface GetAlarmEventsParams {
+  unitId?: string;
+  canonicalTagId?: string;
+  canonicalTagName?: string;
+  state?: AlarmEventState;
+  severity?: AlarmEventSeverity;
+  from?: Date | string;
+  to?: Date | string;
+  /** Defaults to 100 on the backend; max 500. */
+  limit?: number;
+}
+
+export const getAlarmEvents = (
+  params: GetAlarmEventsParams,
+  options?: GetOptions,
+): Promise<AlarmEventsResponse> => getJson<AlarmEventsResponse>('/alarms/events', params, options);

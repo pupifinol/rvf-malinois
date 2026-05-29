@@ -64,6 +64,12 @@ export {
   assertUuidShaped,
   isUuidShaped as isLatestUnitIdUuidShaped,
 } from './latest';
+export {
+  type AlarmEventRow,
+  type AlarmEventsResponse,
+  type GetAlarmEventsParams,
+  adapterGetAlarmEvents,
+} from './alarms';
 
 // Re-export the deterministic mock fixtures so tests / Storybook / dev
 // tooling can reference them without reaching into the implementation.
@@ -79,4 +85,5 @@ export {
   MOCK_F4_COMMISSIONING_SNAPSHOTS,
   MOCK_F4_TELEMETRY_TRENDS,
   MOCK_F4_TELEMETRY_LATEST,
+  MOCK_F4_ALARM_EVENTS,
 } from './mock-fixtures';

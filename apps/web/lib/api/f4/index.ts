@@ -40,6 +40,7 @@ export {
   type ListJobsParams,
   type GetTelemetryTrendsParams,
   type GetTelemetryLatestParams,
+  type GetAlarmEventsParams,
   listTenants,
   getTenant,
   listWells,
@@ -54,6 +55,7 @@ export {
   getJobById,
   getTelemetryTrends,
   getTelemetryLatest,
+  getAlarmEvents,
 } from './endpoints';
 
 // Frontend types.
@@ -94,4 +96,9 @@ export type {
   TrendBucket,
   TelemetryLatestValue,
   TelemetryLatestResponse,
+  AlarmEventState,
+  AlarmEventSeverity,
+  AlarmEventThresholdBand,
+  AlarmEventRow,
+  AlarmEventsResponse,
 } from './types';

@@ -445,3 +445,65 @@ export interface TelemetryLatestResponse {
   /** Zero or more rows, one per `(sensorId, canonicalTagId)` slot for the unit. */
   values: TelemetryLatestValue[];
 }
+
+// =============================================================================
+// Alarm events — F4.6D.2.1
+// =============================================================================
+
+/** State enum — matches `alarm_events.state` CHECK. F4.6D.1 writes only `'active'`. */
+export type AlarmEventState = 'active' | 'acknowledged' | 'cleared';
+
+/** Severity enum — matches `alarm_events.severity` CHECK. */
+export type AlarmEventSeverity = 'info' | 'warning' | 'critical';
+
+/** Threshold-band enum — matches `alarm_events.threshold_violated` CHECK. */
+export type AlarmEventThresholdBand = 'low_low' | 'low' | 'high' | 'high_high';
+
+/**
+ * One row of the alarm-events response. Derived view of the backend
+ * `alarm_events` row — `tenantId` / `ruleSnapshot` / `createdAt` /
+ * `updatedAt` / `jobId` are intentionally not on the wire (per
+ * F4.6D.2-0 §9.3 — exposing `ruleSnapshot` thresholds would invite
+ * browser-side re-interpretation, exactly the ADR-005 violation this API
+ * exists to prevent).
+ *
+ * `triggeredValue` is the Prisma Decimal serialized as a string (matches
+ * the F4.4F raw-mode posture; consumers `Number(...)` if they need numeric
+ * math). `alarmRuleId` is nullable — `SetNull` cascade when the referenced
+ * rule is deleted; events outlive their rules.
+ *
+ * Lifecycle columns (`acknowledgedAt` / `acknowledgedBy` / `clearedAt`) are
+ * surfaced as `null` until F4.6D.3 ships the `active → acknowledged →
+ * cleared` transitions. Their wire presence makes that next phase additive.
+ */
+export interface AlarmEventRow {
+  alarmEventId: string;
+  unitId: string;
+  canonicalTag: CanonicalTagSummary;
+  /** Nullable — `SetNull` cascade when the rule is deleted. */
+  alarmRuleId: string | null;
+  severity: AlarmEventSeverity;
+  state: AlarmEventState;
+  /** Decimal — serialized as a string. */
+  triggeredValue: string;
+  thresholdViolated: AlarmEventThresholdBand;
+  /** ISO-8601 — the reading's timestamp at trigger time. */
+  firstTriggeredAt: string;
+  /** Reserved for F4.6D.3 lifecycle; `null` until that phase ships. */
+  acknowledgedAt: string | null;
+  /** Reserved for F4.6D.3 lifecycle; `null` until that phase ships. */
+  acknowledgedBy: string | null;
+  /** Reserved for F4.6D.3 lifecycle; `null` until that phase ships. */
+  clearedAt: string | null;
+}
+
+export interface AlarmEventsResponse {
+  /** ISO-8601 — server-side response-generation time. */
+  generatedAt: string;
+  /** Constant string identifying the read source. */
+  source: 'alarm_events';
+  /** Echoes the parsed (defaulted) state query parameter. */
+  state: AlarmEventState;
+  /** Zero or more rows, ordered by `firstTriggeredAt DESC`. */
+  events: AlarmEventRow[];
+}
