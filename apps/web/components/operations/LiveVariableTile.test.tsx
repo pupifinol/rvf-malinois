@@ -8,7 +8,7 @@
  */
 import { brand } from '@rvf/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveVariableTile } from './LiveVariableTile';
@@ -32,14 +32,23 @@ const P_INLET_ID = '00000000-0000-0000-0000-0000000044f1';
 // (useLiveValue / useAlarmState / useHistoryBuffer / useNowTick) return
 // stable stubs without booting the simulator.
 
-const { useLiveValueMock, useAlarmStateMock, useHistoryBufferMock, useNowTickMock } = vi.hoisted(
-  () => ({
-    useLiveValueMock: vi.fn(),
-    useAlarmStateMock: vi.fn(),
-    useHistoryBufferMock: vi.fn(),
-    useNowTickMock: vi.fn(),
-  }),
-);
+const {
+  useLiveValueMock,
+  useAlarmStateMock,
+  useHistoryBufferMock,
+  useNowTickMock,
+  drawerOpenMock,
+} = vi.hoisted(() => ({
+  useLiveValueMock: vi.fn(),
+  useAlarmStateMock: vi.fn(),
+  useHistoryBufferMock: vi.fn(),
+  useNowTickMock: vi.fn(),
+  drawerOpenMock: vi.fn(),
+}));
+
+vi.mock('./OperationsTrendDrawer', () => ({
+  useOperationsTrendDrawer: () => ({ open: drawerOpenMock, close: vi.fn() }),
+}));
 
 vi.mock('@/lib/hooks', async (importOriginal) => {
   const actual = await importOriginal<typeof HooksModule>();
@@ -265,5 +274,69 @@ describe('LiveVariableTile — realtime overlay', () => {
     expect(screen.getByTestId('tile-source-p_inlet').textContent).toBe(
       'Disconnected · last value 13:59:00 UTC',
     );
+  });
+});
+
+// --- F4.5G.2.2.2 — drawer dispatch ------------------------------------------
+
+describe('LiveVariableTile — drawer dispatch (F4.5G.2.2.2)', () => {
+  it('without drawer identity → tile button is disabled (no provider / no host)', () => {
+    renderTile();
+    const button = screen.getByTestId(`tile-${tile.id}`);
+    expect(button.tagName).toBe('BUTTON');
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId(`tile-expand-${tile.id}`)).toBeNull();
+  });
+
+  it('with drawer identity → button is enabled, renders Expand icon', () => {
+    renderTile({
+      drawerUnitId: HP_001_ID,
+      drawerUnitTitle: 'Multiphase Unit #1',
+      drawerHasBackendMatch: true,
+    });
+    const button = screen.getByTestId(`tile-${tile.id}`);
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId(`tile-expand-${tile.id}`)).toBeInTheDocument();
+    expect(button.getAttribute('aria-label')).toContain('Multiphase Unit #1');
+  });
+
+  it('clicking the tile dispatches drawer.open with the resolved selection', () => {
+    renderTile({
+      drawerUnitId: HP_001_ID,
+      drawerUnitTitle: 'Multiphase Unit #1',
+      drawerHasBackendMatch: true,
+    });
+    fireEvent.click(screen.getByTestId(`tile-${tile.id}`));
+    expect(drawerOpenMock).toHaveBeenCalledTimes(1);
+    const call = drawerOpenMock.mock.calls[0]?.[0] as {
+      unitId: string;
+      canonicalTagName: string;
+      variableTitle: string;
+      unitTitle: string;
+      hasBackendMatch: boolean;
+      fallbackJobId: string;
+      fallbackTag: string;
+    };
+    expect(call.unitId).toBe(HP_001_ID);
+    expect(call.canonicalTagName).toBe('p_inlet');
+    expect(call.variableTitle).toBe(tile.label);
+    expect(call.unitTitle).toBe('Multiphase Unit #1');
+    expect(call.hasBackendMatch).toBe(true);
+    // F4.5G.2.2.2 — fallback identity mirrors the tile's `useHistoryBuffer`.
+    expect(String(call.fallbackJobId)).toBe(String(jobId));
+    expect(String(call.fallbackTag)).toBe(String(tile.tag));
+  });
+
+  it('clicking with hasBackendMatch=false still dispatches (honest open w/ caveat)', () => {
+    renderTile({
+      drawerUnitId: 'EMMAD-01',
+      drawerUnitTitle: 'Multiphase Unit #3',
+      drawerHasBackendMatch: false,
+    });
+    fireEvent.click(screen.getByTestId(`tile-${tile.id}`));
+    expect(drawerOpenMock).toHaveBeenCalledTimes(1);
+    const call = drawerOpenMock.mock.calls[0]?.[0] as { hasBackendMatch: boolean; unitId: string };
+    expect(call.hasBackendMatch).toBe(false);
+    expect(call.unitId).toBe('EMMAD-01');
   });
 });

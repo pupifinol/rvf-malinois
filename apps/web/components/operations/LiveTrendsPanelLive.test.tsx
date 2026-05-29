@@ -1,11 +1,13 @@
 /**
- * F4.5G.1 — `<LiveTrendsPanelLive>` tests.
+ * F4.5G.1 + F4.5G.2.2.2 — `<LiveTrendsPanelLive>` tests.
  *
  * Covers:
  *   - Mock mode: simulator path drives the chart (no fetch issued).
  *   - API mode: backend adapter is called for each (unit, tag) pair and the
  *     header subtitle reflects the active source.
- *   - Click-to-open: a TrendCard is button-shaped and opens the drawer.
+ *   - Aggregate caveat: the panel no longer opens the drawer; the per-unit
+ *     tile is the primary entry point. Aggregate-caveat copy is visible and
+ *     the TrendCards are no longer button-shaped.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -110,26 +112,33 @@ describe('LiveTrendsPanelLive — api mode', () => {
   });
 });
 
-describe('LiveTrendsPanelLive — click to expand', () => {
-  it('clicking the Inlet Pressure card opens the drawer with that title', async () => {
+describe('LiveTrendsPanelLive — aggregate caveat (F4.5G.2.2.2)', () => {
+  it('surfaces the AGGREGATE caveat that points operators at unit tiles', () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    renderPanel();
+
+    const caveat = screen.getByTestId('live-trends-aggregate-caveat');
+    expect(caveat.textContent ?? '').toMatch(/aggregate/i);
+    expect(caveat.textContent ?? '').toMatch(/drill into a unit tile/i);
+  });
+
+  it('TrendCards are NOT button-shaped (the panel does not open the drawer)', () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    renderPanel();
+
+    const inlet = screen.getByTestId('trend-card-inlet-pressure');
+    const liquid = screen.getByTestId('trend-card-liquid-flow');
+    expect(inlet.tagName).not.toBe('BUTTON');
+    expect(liquid.tagName).not.toBe('BUTTON');
+  });
+
+  it('clicking a TrendCard does NOT open a drawer dialog', () => {
     delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
     renderPanel();
 
     const card = screen.getByTestId('trend-card-inlet-pressure');
     fireEvent.click(card);
 
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveAttribute('aria-label', expect.stringContaining('Inlet Pressure'));
-  });
-
-  it('clicking the Liquid Flow card opens the drawer with that title', async () => {
-    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
-    renderPanel();
-
-    const card = screen.getByTestId('trend-card-liquid-flow');
-    fireEvent.click(card);
-
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveAttribute('aria-label', expect.stringContaining('Liquid Flow'));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

@@ -54,7 +54,10 @@ export type TrendWindow = '15m' | '1h' | '6h' | '24h' | '7d';
 
 export const TREND_WINDOWS: readonly TrendWindow[] = ['15m', '1h', '6h', '24h', '7d'];
 
-const WINDOW_MS: Record<TrendWindow, number> = {
+/** Window width in milliseconds. Exported so callers that need to filter a
+ * non-backend series (e.g. the F4.5G.2.2.2 simulator-history fallback in
+ * `<TrendDrawer>`) reuse the same edges the trend query uses. */
+export const WINDOW_MS: Record<TrendWindow, number> = {
   '15m': 15 * 60 * 1000,
   '1h': 60 * 60 * 1000,
   '6h': 6 * 60 * 60 * 1000,

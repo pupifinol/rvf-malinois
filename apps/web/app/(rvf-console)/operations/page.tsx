@@ -6,6 +6,7 @@ import { LiveMultiphaseUnitGrid } from '@/components/operations/LiveMultiphaseUn
 import { LiveTrendsPanelLive } from '@/components/operations/LiveTrendsPanelLive';
 import { OperationsHeaderRight } from '@/components/operations/OperationsHeaderRight';
 import { OperationsTelemetryRuntime } from '@/components/operations/OperationsTelemetryRuntime';
+import { OperationsTrendDrawerProvider } from '@/components/operations/OperationsTrendDrawer';
 import { PageHeader } from '@/components/shell/PageHeader';
 
 /**
@@ -28,29 +29,31 @@ import { PageHeader } from '@/components/shell/PageHeader';
 
 export default function OperationsPage() {
   return (
-    <div className="flex flex-col gap-4">
-      <OperationsTelemetryRuntime />
+    <OperationsTrendDrawerProvider>
+      <div className="flex flex-col gap-4">
+        <OperationsTelemetryRuntime />
 
-      <PageHeader
-        title="Live Operations Overview"
-        subtitle="Real-time status of active well testing units · F2 simulated normalized stream"
-        right={<OperationsHeaderRight />}
-      />
+        <PageHeader
+          title="Live Operations Overview"
+          subtitle="Real-time status of active well testing units · F2 simulated normalized stream"
+          right={<OperationsHeaderRight />}
+        />
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4">
-        {/* Main column — units + trends */}
-        <div className="flex flex-col gap-4 min-w-0">
-          <LiveMultiphaseUnitGrid />
-          <LiveTrendsPanelLive />
+        <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4">
+          {/* Main column — units + trends */}
+          <div className="flex flex-col gap-4 min-w-0">
+            <LiveMultiphaseUnitGrid />
+            <LiveTrendsPanelLive />
+          </div>
+
+          {/* Right rail */}
+          <aside className="flex flex-col gap-3 2xl:max-w-[320px]">
+            <LiveActiveAlarmsPanel jobs={OPERATIONS_JOBS.map((b) => b.job)} />
+            <LiveCommunicationHealthPanel />
+            <FieldConditionsPanel />
+          </aside>
         </div>
-
-        {/* Right rail */}
-        <aside className="flex flex-col gap-3 2xl:max-w-[320px]">
-          <LiveActiveAlarmsPanel jobs={OPERATIONS_JOBS.map((b) => b.job)} />
-          <LiveCommunicationHealthPanel />
-          <FieldConditionsPanel />
-        </aside>
       </div>
-    </div>
+    </OperationsTrendDrawerProvider>
   );
 }

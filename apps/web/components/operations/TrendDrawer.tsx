@@ -1,10 +1,27 @@
 /**
- * TrendDrawer — F4.5G.1.
+ * TrendDrawer — F4.5G.1 + F4.5G.2.2.2.
  *
  * Lightweight portal-based drawer that opens when an operator clicks a
- * `<TrendCard>` in `<LiveTrendsPanelLive>`. Reuses the same
+ * `<LiveVariableTile>` (per F4.5G.2.2.2). Reuses the same
  * `useOperationsTrendSeries` hook the mini chart uses, so the mini chart
  * and the expanded view never diverge into separate data paths.
+ *
+ * F4.5G.2.2.2 — F2 history-buffer fallback. The trend adapter is keyed by
+ * `(unitId, canonicalTag)` against either the backend (api mode) or the
+ * mock fixture (mock mode). The mock fixture only ships data for a handful
+ * of `(unit, tag)` pairs (HP-001 / p_inlet / q_gas), but the F2 simulator
+ * pushes readings for every tag the snapshot defines — that's the buffer
+ * powering the tile's mini sparkline. So when the trend adapter returns
+ * empty AND we're not in a path where backend-empty is the honest answer,
+ * we render the F2 ring buffer instead. Concretely:
+ *
+ *   - api mode + resolved backend unit (`hasBackendMatch === true`):
+ *     trend adapter is authoritative. Empty ⇒ "No samples in window."
+ *   - mock mode: trend adapter is fixture-based and incomplete. Empty ⇒
+ *     fall back to the F2 ring buffer, label the chip "Simulator history".
+ *   - api mode + no backend match (`hasBackendMatch === false`): no fake
+ *     backend lookup. Trend adapter shouldn't have data; fall back to the
+ *     F2 ring buffer, label the chip "Simulator history".
  *
  * Behavior matches F4.5G-0 §8:
  *
@@ -12,7 +29,7 @@
  *   - Range pills: 15m / 1h / 6h / 24h / 7d. Default 1h.
  *   - Loading / empty / error states.
  *   - Latest value + timestamp (when available).
- *   - Freshness chip naming the data source (mock / api).
+ *   - Freshness chip naming the data source (mock / api / simulator history).
  *   - Close on ESC, backdrop click, or the close button.
  *   - Uses `createPortal` only after `useEffect` confirms `document` exists
  *     so SSR remains side-effect-free.
@@ -22,18 +39,32 @@
  */
 'use client';
 
+import { brand } from '@rvf/types';
 import { cn } from '@rvf/ui';
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { TrendChart } from './TrendChart';
 
+import type { CanonicalTag, JobId } from '@rvf/types';
+
+import { useHistoryBuffer } from '@/lib/hooks/useHistoryBuffer';
 import {
   type TrendWindow,
   TREND_WINDOWS,
+  WINDOW_MS,
   useOperationsTrendSeries,
 } from '@/lib/hooks/useOperationsTrendSeries';
+
+/** Sentinel pair for `useHistoryBuffer` when no fallback identity was supplied.
+ * The F2 telemetry store returns an empty array for any unknown `(jobId, tag)`
+ * pair, so this never produces phantom data — it just lets us call the hook
+ * unconditionally without React-rules violations. */
+const SENTINEL_JOB_ID = brand<string, 'JobId'>('__trend-drawer-fallback-noop__') as JobId;
+const SENTINEL_TAG = brand<string, 'CanonicalTag'>(
+  '__trend-drawer-fallback-noop__',
+) as CanonicalTag;
 
 export interface TrendDrawerProps {
   /** Render only when `open` flips to `true`. */
@@ -51,6 +82,20 @@ export interface TrendDrawerProps {
   color?: string;
   /** Default window opened with. Defaults to 1h per F4.5G-0 §7.2. */
   defaultWindow?: TrendWindow;
+  /**
+   * F4.5G.2.2.2 — F2 history-buffer fallback identity. When the trend adapter
+   * is empty AND we're not in an api+resolved-backend path, the drawer
+   * renders the F2 ring buffer for `(fallbackJobId, fallbackTag)` instead.
+   * Omitted ⇒ no fallback attempted (existing F4.5G.1 behavior). */
+  fallbackJobId?: JobId;
+  fallbackTag?: CanonicalTag;
+  /**
+   * F4.5G.2.2.2 — `true` when `unitId` resolved to a real backend asset.
+   * When omitted, defaults to `true` so existing F4.5G.1 callers retain
+   * "backend-empty is honest" behavior. The drawer only consults the
+   * fallback when this is `false` OR `source === 'mock'`.
+   */
+  hasBackendMatch?: boolean;
 }
 
 const DEFAULT_COLOR = 'var(--series-1)';
@@ -78,6 +123,9 @@ export const TrendDrawer = ({
   unitLabel,
   color = DEFAULT_COLOR,
   defaultWindow = '1h',
+  fallbackJobId,
+  fallbackTag,
+  hasBackendMatch = true,
 }: TrendDrawerProps) => {
   const [mounted, setMounted] = useState(false);
   const [window, setWindow] = useState<TrendWindow>(defaultWindow);
@@ -117,9 +165,79 @@ export const TrendDrawer = ({
     refetchIntervalMs: 60_000,
   });
 
+  // F4.5G.2.2.2 — F2 history-buffer fallback (see header docblock for policy).
+  // Called unconditionally with sentinels when no identity supplied; the F2
+  // store yields `EMPTY_HISTORY` for any unknown pair, so the call is harmless.
+  const history = useHistoryBuffer(fallbackJobId ?? SENTINEL_JOB_ID, fallbackTag ?? SENTINEL_TAG);
+  const fallbackEligible =
+    open &&
+    fallbackJobId !== undefined &&
+    fallbackTag !== undefined &&
+    (result.source === 'mock' || !hasBackendMatch);
+
+  // Window-aware filter for the fallback series. Each `TelemetryReading`
+  // carries an ISO-8601 `ts` (edge-measured), so we filter by `ts >= now -
+  // WINDOW_MS[window]`. The F2 ring buffer caps at 256 readings at 1 Hz
+  // (≈ 4 min), so for any range ≥ 15m the filter is effectively a passthrough
+  // and `bufferCoversWindow` will be `false` — that's surfaced as the
+  // honesty caveat next to the chip, so the operator isn't misled into
+  // thinking the simulator owns deep history.
+  const fallbackFilter = useMemo(() => {
+    if (!fallbackEligible || history.length === 0) {
+      return {
+        data: [] as number[],
+        latest: null as { value: number; timestamp: string } | null,
+        oldestTs: null as string | null,
+        newestTs: null as string | null,
+        coversWindow: false,
+      };
+    }
+    const fromEpoch = Date.now() - WINDOW_MS[window];
+    const data: number[] = [];
+    let latest: { value: number; timestamp: string } | null = null;
+    let oldestTs: string | null = null;
+    let newestTs: string | null = null;
+    for (const r of history) {
+      const tsMs = Date.parse(r.ts);
+      if (Number.isNaN(tsMs) || tsMs < fromEpoch) continue;
+      if (r.value !== null && Number.isFinite(r.value)) {
+        data.push(r.value);
+        latest = { value: r.value, timestamp: r.ts };
+      }
+      oldestTs = oldestTs ?? r.ts;
+      newestTs = r.ts;
+    }
+    // Honest: the buffer covers the selected window only if the very first
+    // stored reading sits at or before the window's `from` edge.
+    const firstRaw = history[0];
+    const firstStoredMs = firstRaw ? Date.parse(firstRaw.ts) : Number.NaN;
+    const coversWindow =
+      Number.isFinite(firstStoredMs) && firstStoredMs <= fromEpoch && data.length > 0;
+    return { data, latest, oldestTs, newestTs, coversWindow };
+  }, [fallbackEligible, history, window]);
+
+  const fallbackSeries = useMemo(
+    () => ({ name: title, color, data: fallbackFilter.data }),
+    [title, color, fallbackFilter.data],
+  );
+
   if (!open || !mounted || typeof document === 'undefined') return null;
 
-  const sourceLabel = result.source === 'api' ? 'Live backend' : 'Mock fixture';
+  const fallbackUsable = fallbackEligible && result.isEmpty && fallbackSeries.data.length > 0;
+
+  const renderedSeries = fallbackUsable ? fallbackSeries : result.series;
+  const renderedLatest = fallbackUsable ? fallbackFilter.latest : result.latest;
+  const renderedIsEmpty = fallbackUsable ? renderedSeries.data.length === 0 : result.isEmpty;
+  const stats = computeSeriesStats(renderedSeries.data);
+  const sourceLabel = fallbackUsable
+    ? 'Simulator history'
+    : result.source === 'api'
+      ? 'Live backend'
+      : 'Mock fixture';
+  const fallbackShortLabel =
+    fallbackUsable && !fallbackFilter.coversWindow
+      ? 'Simulator buffer shorter than selected range'
+      : '';
   const freshnessLabel = result.lastDataAt ? `Loaded ${formatTimestamp(result.lastDataAt)}` : '';
 
   const drawer = (
@@ -153,12 +271,20 @@ export const TrendDrawer = ({
             <h2 className="text-sm uppercase tracking-wide font-bold text-text-primary truncate">
               {title}
             </h2>
-            <div className="flex items-center gap-2 text-micro uppercase tracking-micro text-text-muted">
+            <div className="flex items-center gap-2 text-micro uppercase tracking-micro text-text-muted flex-wrap">
               <span>{unitLabel}</span>
               <span aria-hidden="true">·</span>
               <span>{WINDOW_LABELS[result.window]}</span>
               <span aria-hidden="true">·</span>
               <span data-testid="trend-drawer-source">{sourceLabel}</span>
+              {fallbackShortLabel ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-status-warn" data-testid="trend-drawer-short-buffer">
+                    {fallbackShortLabel}
+                  </span>
+                </>
+              ) : null}
             </div>
           </div>
           <button
@@ -177,8 +303,8 @@ export const TrendDrawer = ({
 
           <div className="flex items-baseline justify-between flex-wrap gap-2">
             <LatestValue
-              latest={result.latest}
-              isLoading={result.isLoading}
+              latest={renderedLatest}
+              isLoading={result.isLoading && !fallbackUsable}
               unitLabel={unitLabel}
             />
             {freshnessLabel ? (
@@ -191,15 +317,17 @@ export const TrendDrawer = ({
             ) : null}
           </div>
 
+          {stats.count > 0 ? <StatsStrip stats={stats} unitLabel={unitLabel} /> : null}
+
           <div className="flex-1 min-h-0">
-            {result.isLoading ? (
+            {result.isLoading && !fallbackUsable ? (
               <LoadingState />
-            ) : result.isError ? (
+            ) : result.isError && !fallbackUsable ? (
               <ErrorState />
-            ) : result.isEmpty ? (
+            ) : renderedIsEmpty ? (
               <EmptyState />
             ) : (
-              <TrendChart series={[result.series]} height={420} />
+              <TrendChart series={[renderedSeries]} height={420} />
             )}
           </div>
         </div>
@@ -302,5 +430,70 @@ const ErrorState = () => (
     data-testid="trend-drawer-error"
   >
     Couldn&apos;t load trend.
+  </div>
+);
+
+interface SeriesStats {
+  count: number;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+}
+
+/** Compact min / max / avg / count summary over the rendered series. Used by
+ * both the api-mode trend response and the F2 fallback. Returns `null` for
+ * the numeric fields when `count === 0` so the UI can skip them honestly. */
+const computeSeriesStats = (data: readonly number[]): SeriesStats => {
+  if (data.length === 0) return { count: 0, min: null, max: null, avg: null };
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let sum = 0;
+  for (const v of data) {
+    if (!Number.isFinite(v)) continue;
+    if (v < min) min = v;
+    if (v > max) max = v;
+    sum += v;
+  }
+  if (!Number.isFinite(min)) return { count: 0, min: null, max: null, avg: null };
+  return { count: data.length, min, max, avg: sum / data.length };
+};
+
+const formatStat = (v: number): string => {
+  if (Math.abs(v) >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (Math.abs(v) >= 100) return v.toFixed(0);
+  if (Math.abs(v) >= 10) return v.toFixed(1);
+  return v.toFixed(2);
+};
+
+const StatsStrip = ({ stats, unitLabel }: { stats: SeriesStats; unitLabel: string }) => (
+  <dl
+    className="grid grid-cols-4 gap-3 px-2 py-1.5 bg-surface-raised border border-border-subtle rounded-xs"
+    data-testid="trend-drawer-stats"
+  >
+    <StatItem label={`Samples`} value={String(stats.count)} testId="trend-drawer-stat-count" />
+    <StatItem
+      label={`Min ${unitLabel}`}
+      value={stats.min !== null ? formatStat(stats.min) : '—'}
+      testId="trend-drawer-stat-min"
+    />
+    <StatItem
+      label={`Max ${unitLabel}`}
+      value={stats.max !== null ? formatStat(stats.max) : '—'}
+      testId="trend-drawer-stat-max"
+    />
+    <StatItem
+      label={`Avg ${unitLabel}`}
+      value={stats.avg !== null ? formatStat(stats.avg) : '—'}
+      testId="trend-drawer-stat-avg"
+    />
+  </dl>
+);
+
+const StatItem = ({ label, value, testId }: { label: string; value: string; testId: string }) => (
+  <div className="flex flex-col gap-0.5 min-w-0">
+    <dt className="text-micro uppercase tracking-micro text-text-muted truncate">{label}</dt>
+    <dd className="text-xs font-semibold tabular-nums text-text-primary" data-testid={testId}>
+      {value}
+    </dd>
   </div>
 );

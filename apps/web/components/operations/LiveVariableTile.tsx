@@ -27,7 +27,9 @@
 'use client';
 
 import { cn } from '@rvf/ui';
+import { Expand } from 'lucide-react';
 
+import { useOperationsTrendDrawer } from './OperationsTrendDrawer';
 import { Sparkline } from './Sparkline';
 
 import type { OperationsTileDescriptor } from './viewModel';
@@ -69,6 +71,25 @@ export interface LiveVariableTileProps {
    */
   realtimeConnection?: OperationsRealtimeConnection;
   realtimeGetSlotValue?: (unitId: string, canonicalTagId: string) => SlotLiveValue | undefined;
+  /**
+   * F4.5G.2.2.2 — drawer identity. Set by `<LiveMultiphaseUnitCard>` so the
+   * tile knows which `(unitId, unitTitle)` to dispatch when clicked.
+   *
+   *   - `drawerUnitId`: the id passed to `useOperationsTrendSeries`. In api+
+   *     resolved mode this is a backend `MeasurementUnit.id` UUID; in mock
+   *     mode with a `backendUnitCode` annotation it is the mock fixture UUID
+   *     (resolved via `MOCK_F4_MEASUREMENT_UNITS`); for unresolved bindings
+   *     it falls back to the simulator job's unit id.
+   *   - `unitTitle`: the card's display name, e.g. `'Multiphase Unit #1'`.
+   *   - `hasBackendMatch`: false when the binding has no `backendUnitCode`
+   *     (or no fixture / unit list match); the drawer renders honestly.
+   *
+   * Optional only for backward-compatible test harnesses; the live Operations
+   * screen always supplies them.
+   */
+  drawerUnitId?: string;
+  drawerUnitTitle?: string;
+  drawerHasBackendMatch?: boolean;
 }
 
 const formatValue = (v: number | null): string => {
@@ -158,9 +179,13 @@ export const LiveVariableTile = ({
   latestValues,
   realtimeConnection,
   realtimeGetSlotValue,
+  drawerUnitId,
+  drawerUnitTitle,
+  drawerHasBackendMatch,
 }: LiveVariableTileProps) => {
   const compact = density === 'compact';
   const now = useNowTick(5000);
+  const drawer = useOperationsTrendDrawer();
 
   // F2 substrate — always called at fixed positions for React-rules cleanliness;
   // the tile chooses between F2 and api-mode branches at the value-resolution
@@ -230,28 +255,71 @@ export const LiveVariableTile = ({
     realtimeConnection,
   });
 
+  // F4.5G.2.2.2 — drawer dispatch. Each tile is the primary entry point to
+  // the expanded `<TrendDrawer>` for its own `(unit, canonical tag)` slot.
+  // The card supplies the resolved drawer identity; if the host did not
+  // (older test harnesses), the click is a no-op via the provider-less
+  // fallback in `useOperationsTrendDrawer`.
+  const canOpenDrawer = drawerUnitId !== undefined && drawerUnitTitle !== undefined;
+  const handleClick = canOpenDrawer
+    ? () => {
+        drawer.open({
+          unitId: drawerUnitId,
+          canonicalTagName: String(tile.tag),
+          variableTitle: tile.label,
+          unitTitle: drawerUnitTitle,
+          unitLabel: displayUnit,
+          color: tile.sparkColor.replace(/^text-/, 'var(--') + ')',
+          hasBackendMatch: drawerHasBackendMatch ?? true,
+          // F4.5G.2.2.2 — same `(jobId, tag)` the tile's mini sparkline reads
+          // from. The drawer uses this to render the simulator history when
+          // the trend adapter is empty in mock / unresolved paths.
+          fallbackJobId: jobId,
+          fallbackTag: tile.tag,
+        });
+      }
+    : undefined;
+
   return (
-    <div
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={!canOpenDrawer}
+      aria-label={`Open expanded ${tile.label} trend view for ${drawerUnitTitle ?? 'this unit'}`}
       className={cn(
-        'flex flex-col bg-surface-raised border rounded-sm',
+        'flex flex-col bg-surface-raised border rounded-sm text-left',
+        'transition-colors duration-fast ease-industrial',
         compact ? 'p-2 gap-1' : 'p-3 gap-1.5',
         shell.ring,
+        canOpenDrawer
+          ? 'cursor-pointer hover:border-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'
+          : 'cursor-default',
       )}
       data-state={state}
       data-status={status}
       data-tile={tile.id}
       data-source-chip={sourceChip}
+      data-testid={`tile-${tile.id}`}
     >
       <div className="flex items-center gap-1.5 text-text-secondary">
         <TileIcon Icon={tile.icon} compact={compact} />
         <span className="text-micro uppercase tracking-micro font-medium truncate">
           {tile.label}
         </span>
-        {statusLabel ? (
-          <span className="ml-auto text-micro uppercase tracking-micro text-text-muted">
-            {statusLabel}
-          </span>
-        ) : null}
+        <span className="ml-auto flex items-center gap-1">
+          {statusLabel ? (
+            <span className="text-micro uppercase tracking-micro text-text-muted">
+              {statusLabel}
+            </span>
+          ) : null}
+          {canOpenDrawer ? (
+            <Expand
+              className="w-3 h-3 text-text-muted"
+              aria-hidden="true"
+              data-testid={`tile-expand-${tile.id}`}
+            />
+          ) : null}
+        </span>
       </div>
       <div className="flex items-baseline gap-1.5 leading-none">
         <span
@@ -278,7 +346,7 @@ export const LiveVariableTile = ({
         strokeWidth={1.1}
         className={cn('w-full', sparkOpacity, sparkClass)}
       />
-    </div>
+    </button>
   );
 };
 

@@ -1,5 +1,5 @@
 /**
- * LiveTrendsPanelLive — F2B + F4.5G.1.
+ * LiveTrendsPanelLive — F2B + F4.5G.1 + F4.5G.2.2.2.
  *
  * Two compact trend charts (inlet pressure, liquid flow), one line per
  * active Operations job. Behavior is data-source aware:
@@ -12,11 +12,14 @@
  *   - `NEXT_PUBLIC_RVF_DATA_SOURCE === 'api'` (backend path):
  *     mini chart series are sourced from F4.6F.1 trend reads through the
  *     shared `useOperationsTrendSeries` hook (default 15-minute window).
- *     The hook drives both the mini chart and the expanded drawer, so
- *     they never read different data paths for the same metric.
  *
- * In both modes each `<TrendCard>` is clickable / keyboard-actionable —
- * activating it opens `<TrendDrawer>` for the selected (unit, tag) pair.
+ * F4.5G.2.2.2 — drawer ownership moved. This panel no longer opens the
+ * expanded `<TrendDrawer>`. The previous behavior dispatched only the first
+ * binding's `(unitId, tag)` — an aggregate view — which yielded an empty
+ * drawer in mock mode for `Liquid Flow` (no `EMMAD-01::q_liquid` fixture) and
+ * was not the operationally useful entry point. The per-unit
+ * `<LiveVariableTile>` is the primary drawer entry point now; this panel
+ * stays as visual chrome with an explicit `AGGREGATE` caveat.
  *
  * Hooks are called at fixed positions, not inside a loop — the panel binds
  * explicitly to the three jobs OPERATIONS_JOBS exposes (a typed 3-tuple).
@@ -25,12 +28,8 @@
  */
 'use client';
 
-import { cn } from '@rvf/ui';
-import { useState } from 'react';
-
 import { OPERATIONS_JOBS } from './data/operationsJobs';
 import { TrendChart, type TrendSeries } from './TrendChart';
-import { TrendDrawer } from './TrendDrawer';
 
 import type { TelemetryReading } from '@/lib/telemetry/models';
 
@@ -60,14 +59,6 @@ const toNumberSeries = (history: readonly TelemetryReading[]): number[] => {
   }
   return out;
 };
-
-interface DrawerSelection {
-  unitId: string;
-  canonicalTagName: string;
-  title: string;
-  unitLabel: string;
-  color: string;
-}
 
 export const LiveTrendsPanelLive = () => {
   const source = getDataSource();
@@ -182,20 +173,22 @@ export const LiveTrendsPanelLive = () => {
   const sourceLabel = isApi ? 'F4.6F.1 backend trends' : 'F2 simulated normalized stream';
   const sampleLabel = isApi ? 'Live ~15m window' : 'Last ~60 samples';
 
-  const [selection, setSelection] = useState<DrawerSelection | null>(null);
-  const openDrawer = (next: DrawerSelection) => setSelection(next);
-  const closeDrawer = () => setSelection(null);
-
   return (
     <section
       className="bg-surface border border-border-subtle rounded-sm p-4 flex flex-col gap-3"
       aria-label="Live trends"
     >
       <header className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-baseline gap-2.5">
+        <div className="flex items-baseline gap-2.5 flex-wrap">
           <h2 className="text-sm uppercase tracking-wide font-bold text-text-primary">
             Live Trends
           </h2>
+          <span
+            className="text-micro uppercase tracking-micro text-text-muted"
+            data-testid="live-trends-aggregate-caveat"
+          >
+            Aggregate · drill into a unit tile for detail
+          </span>
           <span className="text-micro uppercase tracking-micro text-text-muted">{sampleLabel}</span>
           <span
             className="text-micro uppercase tracking-micro text-text-muted"
@@ -208,47 +201,9 @@ export const LiveTrendsPanelLive = () => {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TrendCard
-          title="Inlet Pressure"
-          unitLabel="psi"
-          series={pressureSeries}
-          onOpen={() =>
-            openDrawer({
-              unitId: b0.job.unitId,
-              canonicalTagName: CANONICAL_TAGS.PInlet,
-              title: 'Inlet Pressure',
-              unitLabel: 'psi',
-              color: colorAt(0),
-            })
-          }
-        />
-        <TrendCard
-          title="Liquid Flow"
-          unitLabel="bbl/d"
-          series={flowSeries}
-          onOpen={() =>
-            openDrawer({
-              unitId: b0.job.unitId,
-              canonicalTagName: CANONICAL_TAGS.QLiquid,
-              title: 'Liquid Flow',
-              unitLabel: 'bbl/d',
-              color: colorAt(0),
-            })
-          }
-        />
+        <TrendCard title="Inlet Pressure" unitLabel="psi" series={pressureSeries} />
+        <TrendCard title="Liquid Flow" unitLabel="bbl/d" series={flowSeries} />
       </div>
-
-      {selection ? (
-        <TrendDrawer
-          open
-          onClose={closeDrawer}
-          unitId={selection.unitId}
-          canonicalTagName={selection.canonicalTagName}
-          title={selection.title}
-          unitLabel={selection.unitLabel}
-          color={selection.color}
-        />
-      ) : null}
     </section>
   );
 };
@@ -282,24 +237,15 @@ const TrendCard = ({
   title,
   unitLabel,
   series,
-  onOpen,
 }: {
   title: string;
   unitLabel: string;
   series: TrendSeries[];
-  onOpen: () => void;
 }) => (
-  <button
-    type="button"
-    onClick={onOpen}
-    aria-label={`Open expanded ${title} trend view`}
-    className={cn(
-      'flex flex-col gap-2 text-left',
-      'bg-transparent border-0 p-0 cursor-pointer',
-      'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
-      'focus-visible:outline-border-focus',
-    )}
+  <div
+    className="flex flex-col gap-2"
     data-testid={`trend-card-${title.replace(/\s+/g, '-').toLowerCase()}`}
+    aria-label={`${title} aggregate trend`}
   >
     <div className="flex items-baseline justify-between">
       <span className="text-xs font-semibold uppercase tracking-wide text-text-primary">
@@ -310,5 +256,5 @@ const TrendCard = ({
       </span>
     </div>
     <TrendChart series={series} height={160} />
-  </button>
+  </div>
 );

@@ -25,6 +25,7 @@ import type { TrackedSlot } from '@/lib/hooks';
 import type { ActiveJobSnapshot } from '@/lib/jobs/types';
 import type { CommunicationStatus } from '@/lib/telemetry/models';
 
+import { MOCK_F4_MEASUREMENT_UNITS } from '@/lib/api-data/f4';
 import {
   useNowTick,
   useOperationsLatestValues,
@@ -160,6 +161,31 @@ export const LiveMultiphaseUnitCard = ({
   // Latest-value REST hydration — disabled when `backendUnitId === null`.
   const latestValues = useOperationsLatestValues({ unitId: backendUnitId });
 
+  // F4.5G.2.2.2 — drawer identity. The trend drawer is fed by
+  // `useOperationsTrendSeries`, which has two adapters:
+  //
+  //   - api mode: keys on backend `MeasurementUnit.id` UUID. We use
+  //     `backendUnitId` once the units-list resolver has matched.
+  //   - mock mode: keys on the fixture's `MOCK_F4_MEASUREMENT_UNITS[].id`
+  //     UUID. The mock-mode `useUnitsFleet()` derives its rows from twin
+  //     catalog entries and does NOT expose `code`, so the api-mode resolver
+  //     returns `null` even for `'HP-001'` / `'LP-001'`. Reading the same
+  //     `code` field directly off the canonical fixture array is the honest
+  //     bridge — not a fake mapping, since the `code` is the same column the
+  //     real backend exposes.
+  //
+  // When neither path resolves, the drawer still opens with the simulator job's
+  // unit id (`'EMMAD-01'`, `'PSK-03'`, …) but `hasBackendMatch` is `false`, so
+  // the drawer title prefixes "No backend unit match" and the chart is honestly
+  // empty rather than silently misleading.
+  const mockBackendUnitId = useMemo<string | null>(() => {
+    if (!backendUnitCode) return null;
+    return MOCK_F4_MEASUREMENT_UNITS.find((u) => u.code === backendUnitCode)?.id ?? null;
+  }, [backendUnitCode]);
+  const drawerUnitId = backendUnitId ?? mockBackendUnitId ?? String(job.unitId);
+  const drawerUnitTitle = displayName ?? `Multiphase Unit #${String(displayNumber)}`;
+  const drawerHasBackendMatch = backendUnitId !== null || mockBackendUnitId !== null;
+
   // Realtime overlay — track the six tile slots for this card's resolved unit.
   // The realtime hook's `isUuidShaped` predicate provides defense in depth;
   // we still gate `trackedSlots` here so non-resolved cards never push slot
@@ -254,6 +280,9 @@ export const LiveMultiphaseUnitCard = ({
             latestValues={latestValues}
             realtimeConnection={realtime.connection}
             realtimeGetSlotValue={realtime.getSlotValue}
+            drawerUnitId={drawerUnitId}
+            drawerUnitTitle={drawerUnitTitle}
+            drawerHasBackendMatch={drawerHasBackendMatch}
           />
         ))}
       </div>

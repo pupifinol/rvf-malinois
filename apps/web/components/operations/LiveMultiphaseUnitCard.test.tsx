@@ -56,13 +56,24 @@ vi.mock('./LiveVariableTile', () => ({
   LiveVariableTile: ({
     tile,
     backendUnitId,
+    drawerUnitId,
+    drawerUnitTitle,
+    drawerHasBackendMatch,
   }: {
     tile: { id: string };
     backendUnitId?: string | null;
+    drawerUnitId?: string;
+    drawerUnitTitle?: string;
+    drawerHasBackendMatch?: boolean;
   }) => (
     <div
       data-testid={`tile-stub-${tile.id}`}
       data-backend-unit-id={backendUnitId === null ? 'null' : (backendUnitId ?? 'undefined')}
+      data-drawer-unit-id={drawerUnitId ?? 'undefined'}
+      data-drawer-unit-title={drawerUnitTitle ?? 'undefined'}
+      data-drawer-has-backend-match={
+        drawerHasBackendMatch === undefined ? 'undefined' : String(drawerHasBackendMatch)
+      }
     />
   ),
 }));
@@ -208,5 +219,61 @@ describe('LiveMultiphaseUnitCard — latest hook + tracked slots', () => {
     // Card header text is the existing F2-derived markup; just confirm we
     // still render something role-tagged.
     expect(screen.getByRole('article')).toBeInTheDocument();
+  });
+});
+
+// F4.5G.2.2.2 — drawer identity threaded through the card.
+//
+// Mock-mode `useUnitsFleet` does not expose `code`, so `useResolveBackendUnitId`
+// returns `null` even for `'HP-001'`. The card resolves the drawer's
+// `unitId` against the canonical fixture array directly (`MOCK_F4_MEASUREMENT_UNITS`)
+// — that is NOT a fake mapping, since `code` is the same column the real
+// backend exposes for a `MeasurementUnit`.
+describe('LiveMultiphaseUnitCard — drawer identity (F4.5G.2.2.2)', () => {
+  const HP_001_FIXTURE_ID = '00000000-0000-0000-0000-000000004411';
+
+  it('resolved backend → drawerUnitId is the resolved UUID and hasBackendMatch=true', () => {
+    resolverMock.mockReturnValue(baseResolver({ unitId: HP_001_ID, source: 'api' }));
+    renderCard('HP-001');
+    const stub = screen.getByTestId('tile-stub-p_inlet');
+    expect(stub.getAttribute('data-drawer-unit-id')).toBe(HP_001_ID);
+    expect(stub.getAttribute('data-drawer-has-backend-match')).toBe('true');
+  });
+
+  it('mock mode + known code → drawerUnitId is the MOCK_F4_MEASUREMENT_UNITS UUID', () => {
+    resolverMock.mockReturnValue(baseResolver({ unitId: null }));
+    renderCard('HP-001');
+    const stub = screen.getByTestId('tile-stub-p_inlet');
+    expect(stub.getAttribute('data-drawer-unit-id')).toBe(HP_001_FIXTURE_ID);
+    expect(stub.getAttribute('data-drawer-has-backend-match')).toBe('true');
+  });
+
+  it('no backendUnitCode → drawerUnitId is the simulator job unitId, hasBackendMatch=false', () => {
+    resolverMock.mockReturnValue(baseResolver({ unitId: null }));
+    renderCard(undefined);
+    const stub = screen.getByTestId('tile-stub-p_inlet');
+    expect(stub.getAttribute('data-drawer-unit-id')).toBe(String(job.unitId));
+    expect(stub.getAttribute('data-drawer-has-backend-match')).toBe('false');
+  });
+
+  it('drawerUnitTitle uses displayName when provided', () => {
+    resolverMock.mockReturnValue(baseResolver({ unitId: HP_001_ID, source: 'api' }));
+    render(
+      <LiveMultiphaseUnitCard
+        job={job}
+        displayNumber={1}
+        displayName="Unit Alpha"
+        connectionStatus={connectionStatus}
+        backendUnitCode="HP-001"
+      />,
+    );
+    const stub = screen.getByTestId('tile-stub-p_inlet');
+    expect(stub.getAttribute('data-drawer-unit-title')).toBe('Unit Alpha');
+  });
+
+  it('drawerUnitTitle falls back to "Multiphase Unit #N" when no displayName', () => {
+    renderCard('HP-001');
+    const stub = screen.getByTestId('tile-stub-p_inlet');
+    expect(stub.getAttribute('data-drawer-unit-title')).toBe('Multiphase Unit #1');
   });
 });
