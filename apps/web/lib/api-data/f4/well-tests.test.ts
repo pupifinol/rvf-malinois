@@ -566,3 +566,54 @@ describe('adapter transition wrappers — api mode', () => {
     await expect(adapterConnectWellTest(HP_001_MEASURING_ID)).rejects.toBeInstanceOf(RvfApiError);
   });
 });
+
+// =============================================================================
+// F4.7.2.1 — Mock fixture / trend-fixture range alignment
+// =============================================================================
+//
+// `MOCK_F4_WELL_TESTS[HP-001]` measuring row's official-window timestamps
+// must intersect `MOCK_F4_TELEMETRY_TRENDS` so the Operations `<TrendDrawer>`
+// `Stabilization` / `Official Window` / `Full Test` pills render meaningful
+// data in mock mode. Pre-F4.7.2.1 the WellTest fixture used May 29
+// timestamps while the trend fixture covered May 24 → the official-window
+// query returned zero points and the drawer showed an empty chart.
+
+describe('MOCK_F4_WELL_TESTS — F4.7.2.1 trend-fixture range alignment', () => {
+  it('HP-001 measuring fixture officialStartedAt falls inside the mock trend range', () => {
+    const rows = MOCK_F4_WELL_TESTS[HP_001_ID];
+    expect(rows).toBeDefined();
+    const measuring = rows?.find((r) => r.lifecycleStatus === 'measuring');
+    expect(measuring).toBeDefined();
+    if (!measuring) return;
+    // Mock trend fixture covers 2026-05-24T00:00:00Z → 2026-05-24T01:00:00Z.
+    expect(Date.parse(measuring.officialStartedAt ?? '')).toBeGreaterThanOrEqual(
+      Date.parse('2026-05-24T00:00:00.000Z'),
+    );
+    expect(Date.parse(measuring.officialStartedAt ?? '')).toBeLessThan(
+      Date.parse('2026-05-24T01:00:00.000Z'),
+    );
+  });
+
+  it('HP-001 measuring fixture stabilization window falls inside the mock trend range', () => {
+    const measuring = MOCK_F4_WELL_TESTS[HP_001_ID]?.find((r) => r.lifecycleStatus === 'measuring');
+    expect(measuring).toBeDefined();
+    if (!measuring) return;
+    expect(Date.parse(measuring.stabilizationStartedAt ?? '')).toBeGreaterThanOrEqual(
+      Date.parse('2026-05-24T00:00:00.000Z'),
+    );
+    expect(Date.parse(measuring.stabilizationEndedAt ?? '')).toBeLessThanOrEqual(
+      Date.parse('2026-05-24T01:00:00.000Z'),
+    );
+    // Stabilization end equals official start (per F4.7-0 transition rule).
+    expect(measuring.stabilizationEndedAt).toBe(measuring.officialStartedAt);
+  });
+
+  it('HP-001 measuring fixture connectedAt is at or before the trend fixture start', () => {
+    const measuring = MOCK_F4_WELL_TESTS[HP_001_ID]?.find((r) => r.lifecycleStatus === 'measuring');
+    expect(measuring).toBeDefined();
+    if (!measuring) return;
+    expect(Date.parse(measuring.connectedAt ?? '')).toBeLessThanOrEqual(
+      Date.parse('2026-05-24T00:00:00.000Z'),
+    );
+  });
+});

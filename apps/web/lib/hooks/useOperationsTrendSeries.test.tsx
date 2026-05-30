@@ -13,6 +13,7 @@ import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  policyForWidth,
   policyForWindow,
   useOperationsTrendSeries,
   type UseOperationsTrendSeriesResult,
@@ -235,5 +236,165 @@ describe('useOperationsTrendSeries — gating', () => {
     });
     expect(adapterMock).not.toHaveBeenCalled();
     expect(capture.current?.series.data).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4.7.2.1 — width-based bucketing + windowRange override
+// ---------------------------------------------------------------------------
+
+describe('policyForWidth (F4.7.2.1)', () => {
+  it('returns raw mode for widths ≤ 1 h', () => {
+    expect(policyForWidth(60 * 60 * 1000)).toEqual({});
+    expect(policyForWidth(30 * 60 * 1000)).toEqual({});
+  });
+
+  it('returns 1m / avg / good_only for 1 h < width ≤ 6 h', () => {
+    expect(policyForWidth(2 * 60 * 60 * 1000)).toEqual({
+      bucket: '1m',
+      aggregate: 'avg',
+      qualityPolicy: 'good_only',
+    });
+    expect(policyForWidth(6 * 60 * 60 * 1000)).toEqual({
+      bucket: '1m',
+      aggregate: 'avg',
+      qualityPolicy: 'good_only',
+    });
+  });
+
+  it('returns 5m / avg / good_only for 6 h < width ≤ 24 h', () => {
+    expect(policyForWidth(12 * 60 * 60 * 1000)).toEqual({
+      bucket: '5m',
+      aggregate: 'avg',
+      qualityPolicy: 'good_only',
+    });
+  });
+
+  it('returns 15m / avg / good_only for widths > 24 h', () => {
+    expect(policyForWidth(7 * 24 * 60 * 60 * 1000)).toEqual({
+      bucket: '15m',
+      aggregate: 'avg',
+      qualityPolicy: 'good_only',
+    });
+  });
+});
+
+describe('useOperationsTrendSeries — windowRange override (F4.7.2.1)', () => {
+  it('passes explicit from/to from windowRange to the adapter', async () => {
+    process.env.NEXT_PUBLIC_RVF_DATA_SOURCE = 'api';
+    adapterMock.mockResolvedValueOnce(sampleResponse());
+
+    const fromMs = Date.UTC(2026, 4, 29, 9, 5, 0);
+    const toMs = Date.UTC(2026, 4, 29, 10, 0, 0);
+
+    const capture: Capture = { current: null };
+    renderHookProbe(capture, {
+      unitId: HP_001_ID,
+      canonicalTagName: 'p_inlet',
+      window: '15m',
+      windowRange: { fromMs, toMs, pillId: 'official_window' },
+      name: 'HP-001',
+      color: 'red',
+    });
+
+    await waitFor(() => {
+      expect(adapterMock).toHaveBeenCalled();
+    });
+    const [params] = adapterMock.mock.calls[0] as [Record<string, unknown>];
+    expect(params.from).toBe(new Date(fromMs).toISOString());
+    expect(params.to).toBe(new Date(toMs).toISOString());
+    // Width is 55 min → raw mode.
+    expect(params.bucket).toBeUndefined();
+  });
+
+  it('selects bucketed policy by width when override range is wide', async () => {
+    process.env.NEXT_PUBLIC_RVF_DATA_SOURCE = 'api';
+    adapterMock.mockResolvedValueOnce(sampleResponse());
+
+    const fromMs = Date.UTC(2026, 4, 29, 8, 0, 0);
+    const toMs = Date.UTC(2026, 4, 30, 8, 0, 0); // 24 h width
+
+    const capture: Capture = { current: null };
+    renderHookProbe(capture, {
+      unitId: HP_001_ID,
+      canonicalTagName: 'p_inlet',
+      window: '15m',
+      windowRange: { fromMs, toMs, pillId: 'official_window' },
+      name: 'HP-001',
+      color: 'red',
+    });
+
+    await waitFor(() => {
+      expect(adapterMock).toHaveBeenCalled();
+    });
+    const [params] = adapterMock.mock.calls[0] as [Record<string, unknown>];
+    expect(params.bucket).toBe('5m');
+    expect(params.aggregate).toBe('avg');
+    expect(params.qualityPolicy).toBe('good_only');
+  });
+
+  it('cache key includes range:<pillId> + fromMs + toMs under f4-trends prefix', async () => {
+    process.env.NEXT_PUBLIC_RVF_DATA_SOURCE = 'api';
+    adapterMock.mockResolvedValueOnce(sampleResponse());
+
+    const fromMs = Date.UTC(2026, 4, 29, 9, 5, 0);
+    const toMs = Date.UTC(2026, 4, 29, 10, 0, 0);
+
+    const capture: Capture = { current: null };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchInterval: false } },
+    });
+    const Probe = (): null => {
+      capture.current = useOperationsTrendSeries({
+        unitId: HP_001_ID,
+        canonicalTagName: 'p_inlet',
+        window: '15m',
+        windowRange: { fromMs, toMs, pillId: 'official_window' },
+        name: 'HP-001',
+        color: 'red',
+      });
+      return null;
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <Probe />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      const entries = client.getQueryCache().findAll({ queryKey: ['f4-trends'] });
+      expect(entries.length).toBeGreaterThan(0);
+      const entry = entries[0];
+      if (!entry) throw new Error('expected cache entry');
+      const key = entry.queryKey;
+      expect(key[0]).toBe('f4-trends');
+      expect(key[3]).toBe('range:official_window');
+      expect(key[key.length - 2]).toBe(fromMs);
+      expect(key[key.length - 1]).toBe(toMs);
+    });
+  });
+
+  it('legacy window enum behavior is unchanged when windowRange is absent', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    adapterMock.mockResolvedValueOnce(sampleResponse());
+
+    const capture: Capture = { current: null };
+    renderHookProbe(capture, {
+      unitId: HP_001_ID,
+      canonicalTagName: 'p_inlet',
+      window: '15m',
+      name: 'HP-001',
+      color: 'red',
+    });
+
+    await waitFor(() => {
+      expect(adapterMock).toHaveBeenCalled();
+    });
+    const [params] = adapterMock.mock.calls[0] as [Record<string, unknown>];
+    // 15m window → raw mode preserved.
+    expect(params.bucket).toBeUndefined();
+    expect(params.aggregate).toBeUndefined();
+    expect(typeof params.from).toBe('string');
+    expect(typeof params.to).toBe('string');
   });
 });

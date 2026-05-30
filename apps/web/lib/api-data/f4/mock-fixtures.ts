@@ -1082,6 +1082,30 @@ const Q_GAS_SEED: SyntheticSeriesSeed = {
   engineeringUnit: 'MMSCFD',
 };
 
+// F4.7.2.1 — seeds for the remaining Operations tiles whose canonical tags
+// are present in `MOCK_F4_CANONICAL_TAGS` (q_liquid + t_inlet). Adding these
+// closes the "Oil Rate" / "Temperature" empty-chart paths in mock mode and
+// gives the Official Window / Stabilization / Full Test pills meaningful
+// data per-tile when an active WellTest is resolved against HP-001. The
+// remaining two Operations tiles (`water_cut` / `dp_weir`) are not in the
+// F4.3 / F4.5B canonical-tag fixture; their tiles continue to render the
+// honest empty state in mock mode, which is correct.
+const Q_LIQUID_SEED: SyntheticSeriesSeed = {
+  canonicalTagName: 'q_liquid',
+  center: 1200,
+  amplitude: 40,
+  precision: 1,
+  engineeringUnit: 'bpd',
+};
+
+const T_INLET_SEED: SyntheticSeriesSeed = {
+  canonicalTagName: 't_inlet',
+  center: 120,
+  amplitude: 5,
+  precision: 1,
+  engineeringUnit: 'degF',
+};
+
 const TRENDS_RANGE_FROM_TS = TRENDS_START_TS;
 const TRENDS_RANGE_TO_TS = new Date(
   Date.parse(TRENDS_START_TS) + TRENDS_POINT_COUNT * TRENDS_INTERVAL_MS,
@@ -1118,17 +1142,36 @@ const HP_001_Q_GAS_TREND: TelemetryTrendsResponse = {
   points: buildSyntheticPoints(Q_GAS_SEED, TRENDS_POINT_COUNT),
 };
 
+const HP_001_Q_LIQUID_TREND: TelemetryTrendsResponse = {
+  unitId: HP_001_ID,
+  canonicalTag: tagSummaryFor('q_liquid'),
+  range: { from: TRENDS_RANGE_FROM_TS, to: TRENDS_RANGE_TO_TS },
+  points: buildSyntheticPoints(Q_LIQUID_SEED, TRENDS_POINT_COUNT),
+};
+
+const HP_001_T_INLET_TREND: TelemetryTrendsResponse = {
+  unitId: HP_001_ID,
+  canonicalTag: tagSummaryFor('t_inlet'),
+  range: { from: TRENDS_RANGE_FROM_TS, to: TRENDS_RANGE_TO_TS },
+  points: buildSyntheticPoints(T_INLET_SEED, TRENDS_POINT_COUNT),
+};
+
 /**
- * Lookup key shape: `${unitId}::${canonicalTagName}`. The two preloaded
- * traces are the F4.5E synthetic set; the adapter falls back to an empty
- * response shape for any other (unit, tag) combination so a real screen
- * exercising the chart path against an unknown tag still sees the
- * `unitId / canonicalTag / range / points: []` envelope.
+ * Lookup key shape: `${unitId}::${canonicalTagName}`. The preloaded traces
+ * cover the four Operations tile canonical tags that exist in the F4.3 /
+ * F4.5B canonical-tag fixture (`p_inlet` / `q_gas` / `q_liquid` / `t_inlet`).
+ * The remaining two Operations tiles (`water_cut` / `dp_weir`) are not in
+ * the canonical-tag dictionary; the adapter falls back to an empty response
+ * shape for any other `(unit, tag)` combination so a real screen exercising
+ * the chart path against an unknown tag still sees the `unitId / canonicalTag
+ * / range / points: []` envelope.
  */
 export const MOCK_F4_TELEMETRY_TRENDS: Readonly<Record<string, TelemetryTrendsResponse>> =
   Object.freeze({
     [`${HP_001_ID}::p_inlet`]: HP_001_P_INLET_TREND,
     [`${HP_001_ID}::q_gas`]: HP_001_Q_GAS_TREND,
+    [`${HP_001_ID}::q_liquid`]: HP_001_Q_LIQUID_TREND,
+    [`${HP_001_ID}::t_inlet`]: HP_001_T_INLET_TREND,
   });
 
 /** Internal helper exported for tests. Returns the deterministic key used
@@ -1319,9 +1362,21 @@ const WELL_TEST_OPT_SCHEDULED_ID = `00000000-0000-0000-0000-${hashSuffix(
   `well-test:${REFERENCE_JOB_ID}:optimizacion:scheduled`,
 )}`;
 
-const WELL_TEST_MEASURING_CONNECTED_AT = '2026-05-29T08:00:00.000Z';
-const WELL_TEST_MEASURING_STABILIZATION_STARTED_AT = '2026-05-29T08:05:00.000Z';
-const WELL_TEST_MEASURING_OFFICIAL_STARTED_AT = '2026-05-29T09:05:00.000Z';
+// F4.7.2.1 — measuring-row timestamps aligned with the static trend fixture
+// range (`MOCK_F4_TELEMETRY_TRENDS` covers `MOCK_TIMESTAMP` → `MOCK_TIMESTAMP
+// + TRENDS_POINT_COUNT * TRENDS_INTERVAL_MS` = `2026-05-24T00:00:00.000Z` →
+// `2026-05-24T01:00:00.000Z`). This way the Operations `<TrendDrawer>` per-
+// pill query (Stabilization / Official Window / Full Test) intersects the
+// trend fixture window and renders meaningful mock data in mock mode. The
+// previous May 29 timestamps fell five days after the trend fixture range,
+// which is what produced the "No samples in window" demo gap reported
+// against the Oil Rate tile. `Last Hour` continues to fall through to the
+// existing F4.5G.2.2.2 simulator-history fallback whenever the user's wall
+// clock is far from the fixture epoch (it always is in mock mode).
+const WELL_TEST_MEASURING_CONNECTED_AT = '2026-05-23T23:55:00.000Z';
+const WELL_TEST_MEASURING_STABILIZATION_STARTED_AT = '2026-05-24T00:00:00.000Z';
+const WELL_TEST_MEASURING_STABILIZATION_ENDED_AT = '2026-05-24T00:10:00.000Z';
+const WELL_TEST_MEASURING_OFFICIAL_STARTED_AT = '2026-05-24T00:10:00.000Z';
 
 const HP_001_WELL_TEST_FISC_MEASURING: WellTestRow = Object.freeze({
   id: WELL_TEST_FISC_MEASURING_ID,
@@ -1335,7 +1390,7 @@ const HP_001_WELL_TEST_FISC_MEASURING: WellTestRow = Object.freeze({
   actualOfficialDurationSeconds: null,
   connectedAt: WELL_TEST_MEASURING_CONNECTED_AT,
   stabilizationStartedAt: WELL_TEST_MEASURING_STABILIZATION_STARTED_AT,
-  stabilizationEndedAt: WELL_TEST_MEASURING_OFFICIAL_STARTED_AT,
+  stabilizationEndedAt: WELL_TEST_MEASURING_STABILIZATION_ENDED_AT,
   officialStartedAt: WELL_TEST_MEASURING_OFFICIAL_STARTED_AT,
   officialEndedAt: null,
   disconnectedAt: null,

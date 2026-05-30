@@ -1,14 +1,17 @@
 /**
- * F4.5G.1 + F4.5G.2.2.2 — `<TrendDrawer>` tests.
+ * F4.5G.1 + F4.5G.2.2.2 + F4.7.2.1 — `<TrendDrawer>` tests.
  *
  * Covers:
  *   - Closed-by-default render returns nothing.
  *   - Open render mounts portal-side dialog.
- *   - Range pills update the queried window.
+ *   - Diagnostic range pills update the queried window.
  *   - Close via button / ESC / backdrop.
  *   - Loading / error / empty states render their indicators.
  *   - F4.5G.2.2.2: F2 history-buffer fallback renders chart when trend
  *     adapter is empty in mock mode or for unresolved backend bindings.
+ *   - F4.7.2.1: primary pill row (Last Hour / Stabilization / Official
+ *     Window / Full Test) defaults from WellTest lifecycle, disabled pills,
+ *     window summary, reports footnote, badge palette.
  */
 import { brand } from '@rvf/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,14 +20,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TrendDrawer } from './TrendDrawer';
 
-import type { TelemetryTrendsResponse } from '@/lib/api/f4';
+import type { TelemetryTrendsResponse, WellTestActiveResponse, WellTestRow } from '@/lib/api/f4';
 import type { TelemetryReading } from '@/lib/telemetry/models';
 import type { CanonicalTag, JobId } from '@rvf/types';
 
 const ORIGINAL_DATA_SOURCE = process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
 
-const { adapterMock, useHistoryBufferMock } = vi.hoisted(() => ({
+const { adapterMock, activeWellTestMock, useHistoryBufferMock } = vi.hoisted(() => ({
   adapterMock: vi.fn<(...args: unknown[]) => Promise<TelemetryTrendsResponse>>(),
+  activeWellTestMock: vi.fn<(...args: unknown[]) => Promise<WellTestActiveResponse>>(),
   useHistoryBufferMock: vi.fn<(jobId: unknown, tag: unknown) => readonly TelemetryReading[]>(
     () => [],
   ),
@@ -32,6 +36,7 @@ const { adapterMock, useHistoryBufferMock } = vi.hoisted(() => ({
 
 vi.mock('@/lib/api-data/f4', () => ({
   adapterGetTelemetryTrends: adapterMock,
+  adapterGetActiveWellTest: activeWellTestMock,
 }));
 
 vi.mock('@/lib/hooks/useHistoryBuffer', () => ({
@@ -114,6 +119,14 @@ const renderDrawer = (props: Partial<React.ComponentProps<typeof TrendDrawer>> =
 
 beforeEach(() => {
   adapterMock.mockReset();
+  activeWellTestMock.mockReset();
+  // Default: no active well test — exercises the F4.5G.1 / F4.5G.2.2.2
+  // back-compat path where the diagnostic row is the initial selection.
+  activeWellTestMock.mockResolvedValue({
+    generatedAt: '2026-05-29T10:00:00.000Z',
+    source: 'well_tests',
+    active: null,
+  });
   useHistoryBufferMock.mockReset();
   useHistoryBufferMock.mockReturnValue([]);
 });
@@ -495,5 +508,268 @@ describe('TrendDrawer — window-aware fallback (F4.5G.2.2.2)', () => {
     expect(screen.getByTestId('trend-drawer-stat-min').textContent).toBe('3,800');
     expect(screen.getByTestId('trend-drawer-stat-max').textContent).toBe('3,811');
     expect(screen.queryByTestId('trend-drawer-short-buffer')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4.7.2.1 — Primary pill row (Last Hour / Stabilization / Official Window
+// / Full Test) backed by `useActiveWellTest` + `useWellTestWindow`.
+// ---------------------------------------------------------------------------
+
+const measuringRow = (): WellTestRow => ({
+  id: '00000000-0000-0000-0000-000000007001',
+  jobId: '00000000-0000-0000-0000-000000003001',
+  wellId: '00000000-0000-0000-0000-000000002001',
+  unitId: HP_001_ID,
+  testType: 'fiscalizacion',
+  reportType: 'fiscalizacion_pdf',
+  lifecycleStatus: 'measuring',
+  plannedOfficialDurationHours: 24,
+  actualOfficialDurationSeconds: null,
+  connectedAt: '2026-05-29T08:00:00.000Z',
+  stabilizationStartedAt: '2026-05-29T08:05:00.000Z',
+  stabilizationEndedAt: '2026-05-29T09:05:00.000Z',
+  officialStartedAt: '2026-05-29T09:05:00.000Z',
+  officialEndedAt: null,
+  disconnectedAt: null,
+  reportGeneratedAt: null,
+  abortedAt: null,
+  abortReason: null,
+  notes: null,
+  clientReference: null,
+  createdAt: '2026-05-29T08:00:00.000Z',
+  updatedAt: '2026-05-29T09:05:00.000Z',
+});
+
+const stabilizingRow = (): WellTestRow => ({
+  ...measuringRow(),
+  lifecycleStatus: 'stabilizing',
+  stabilizationEndedAt: null,
+  officialStartedAt: null,
+});
+
+const completedRow = (): WellTestRow => ({
+  ...measuringRow(),
+  lifecycleStatus: 'completed',
+  officialEndedAt: '2026-05-30T09:05:00.000Z',
+});
+
+const setActive = (row: WellTestRow | null) =>
+  activeWellTestMock.mockResolvedValue({
+    generatedAt: '2026-05-29T10:00:00.000Z',
+    source: 'well_tests',
+    active: row,
+  });
+
+describe('TrendDrawer — F4.7.2.1 primary pill defaults', () => {
+  it('renders both pill rows (primary + diagnostic)', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    expect(screen.getByTestId('trend-drawer-primary')).toBeInTheDocument();
+    expect(screen.getByTestId('trend-drawer-range')).toBeInTheDocument();
+    expect(screen.getByTestId('trend-drawer-pill-last_hour')).toBeInTheDocument();
+    expect(screen.getByTestId('trend-drawer-pill-stabilization')).toBeInTheDocument();
+    expect(screen.getByTestId('trend-drawer-pill-official_window')).toBeInTheDocument();
+    expect(screen.getByTestId('trend-drawer-pill-full_test')).toBeInTheDocument();
+  });
+
+  it('defaults to diagnostic row when no active WellTest exists, badge="Diagnostic"', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer({ defaultWindow: '1h' });
+    await screen.findByRole('dialog');
+
+    const badge = await screen.findByTestId('trend-drawer-badge');
+    expect(badge.textContent).toBe('Diagnostic');
+    // Reports footnote only renders when an active WellTest exists.
+    expect(screen.queryByTestId('trend-drawer-reports-note')).toBeNull();
+  });
+
+  it('defaults to Official Window pill for measuring WellTest', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(measuringRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    const official = await screen.findByTestId('trend-drawer-pill-official_window');
+    await vi.waitFor(() => {
+      expect(official.getAttribute('aria-checked')).toBe('true');
+    });
+    const badge = screen.getByTestId('trend-drawer-badge');
+    expect(badge.textContent).toBe('Official Window in progress');
+    expect(screen.getByTestId('trend-drawer-reports-note').textContent).toMatch(
+      /official measurement window only/i,
+    );
+  });
+
+  it('defaults to Stabilization pill for stabilizing WellTest', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(stabilizingRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    const stab = await screen.findByTestId('trend-drawer-pill-stabilization');
+    await vi.waitFor(() => {
+      expect(stab.getAttribute('aria-checked')).toBe('true');
+    });
+    expect(screen.getByTestId('trend-drawer-badge').textContent).toBe('Stabilization phase');
+  });
+
+  it('defaults to Official Window for completed WellTest with end timestamp', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(completedRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    await vi.waitFor(() => {
+      expect(
+        screen.getByTestId('trend-drawer-pill-official_window').getAttribute('aria-checked'),
+      ).toBe('true');
+    });
+    expect(screen.getByTestId('trend-drawer-badge').textContent).toBe('Official Window completed');
+  });
+});
+
+describe('TrendDrawer — F4.7.2.1 pill disabled states', () => {
+  it('Official Window pill disabled when officialStartedAt is null', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(stabilizingRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    const official = await screen.findByTestId('trend-drawer-pill-official_window');
+    await vi.waitFor(() => {
+      expect(official.hasAttribute('disabled')).toBe(true);
+    });
+    expect(official.getAttribute('title')).toMatch(/Official measurement has not started/i);
+  });
+
+  it('Stabilization pill disabled when no active WellTest', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(null);
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    const stab = screen.getByTestId('trend-drawer-pill-stabilization');
+    expect(stab.hasAttribute('disabled')).toBe(true);
+    expect(stab.getAttribute('title')).toMatch(/Stabilization has not started/i);
+  });
+
+  it('Last Hour pill is always enabled', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(null);
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    const lh = screen.getByTestId('trend-drawer-pill-last_hour');
+    expect(lh.hasAttribute('disabled')).toBe(false);
+  });
+});
+
+describe('TrendDrawer — F4.7.2.1 trend query window', () => {
+  it('clicking Official Window passes officialStartedAt + now to the trend adapter', async () => {
+    process.env.NEXT_PUBLIC_RVF_DATA_SOURCE = 'api';
+    setActive(measuringRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    // The drawer auto-defaults to Official Window for measuring rows. Wait
+    // for the adapter to be called with the WellTest-derived range.
+    await vi.waitFor(() => {
+      const trendCalls = adapterMock.mock.calls;
+      const last = trendCalls[trendCalls.length - 1];
+      expect(last).toBeDefined();
+      const [params] = last as [Record<string, unknown>];
+      // officialStartedAt = 2026-05-29T09:05:00.000Z; toMs = now (quantized).
+      expect(params.from).toBe('2026-05-29T09:05:00.000Z');
+      expect(typeof params.to).toBe('string');
+    });
+  });
+
+  it('clicking Stabilization passes stabilizationStartedAt → stabilizationEndedAt', async () => {
+    process.env.NEXT_PUBLIC_RVF_DATA_SOURCE = 'api';
+    setActive(measuringRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    // Wait for the active-well-test query to resolve and the drawer to
+    // auto-default to Official Window before we measure the click.
+    await vi.waitFor(() => {
+      expect(
+        screen.getByTestId('trend-drawer-pill-official_window').getAttribute('aria-checked'),
+      ).toBe('true');
+    });
+    adapterMock.mockClear();
+
+    act(() => {
+      screen.getByTestId('trend-drawer-pill-stabilization').click();
+    });
+    await vi.waitFor(() => {
+      expect(adapterMock).toHaveBeenCalled();
+      const last = adapterMock.mock.calls[adapterMock.mock.calls.length - 1];
+      const [p] = last as [Record<string, unknown>];
+      expect(p.from).toBe('2026-05-29T08:05:00.000Z');
+    });
+    const [params] = adapterMock.mock.calls[adapterMock.mock.calls.length - 1] as [
+      Record<string, unknown>,
+    ];
+    expect(params.from).toBe('2026-05-29T08:05:00.000Z');
+    expect(params.to).toBe('2026-05-29T09:05:00.000Z');
+  });
+
+  it('diagnostic row clicks still use the legacy window enum path', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(measuringRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    // Wait for the auto-default to settle before measuring the click.
+    await vi.waitFor(() => {
+      expect(
+        screen.getByTestId('trend-drawer-pill-official_window').getAttribute('aria-checked'),
+      ).toBe('true');
+    });
+    adapterMock.mockClear();
+
+    act(() => {
+      screen.getByTestId('trend-drawer-range-15m').click();
+    });
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('trend-drawer-badge').textContent).toBe('Diagnostic');
+    });
+    await vi.waitFor(() => {
+      expect(adapterMock).toHaveBeenCalled();
+    });
+    const [params] = adapterMock.mock.calls[adapterMock.mock.calls.length - 1] as [
+      Record<string, unknown>,
+    ];
+    // 15m is raw mode.
+    expect(params.bucket).toBeUndefined();
+  });
+});
+
+describe('TrendDrawer — F4.7.2.1 window summary', () => {
+  it('renders the window summary line', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    setActive(measuringRow());
+    adapterMock.mockResolvedValue(sampleResponse());
+    renderDrawer();
+    await screen.findByRole('dialog');
+
+    const summary = await screen.findByTestId('trend-drawer-window-summary');
+    // The measuring default lands on Official Window with right edge = "now".
+    expect(summary.textContent).toMatch(/Official Window: .* → now/);
   });
 });

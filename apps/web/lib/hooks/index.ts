@@ -26,13 +26,29 @@ export {
 } from './useOperationsLatestValues';
 export {
   useOperationsTrendSeries,
+  policyForWidth,
   policyForWindow,
   TREND_WINDOWS,
   type TrendQueryPolicy,
   type TrendWindow,
+  type TrendWindowRange,
   type UseOperationsTrendSeriesInput,
   type UseOperationsTrendSeriesResult,
 } from './useOperationsTrendSeries';
+export {
+  useActiveWellTest,
+  type UseActiveWellTestInput,
+  type UseActiveWellTestResult,
+} from './useActiveWellTest';
+export {
+  deriveWellTestWindow,
+  defaultPillForActiveWellTest,
+  useWellTestWindow,
+  type DerivedWellTestWindow,
+  type UseWellTestWindowInput,
+  type WellTestPillId,
+  type WellTestWindowKind,
+} from './useWellTestWindow';
 export { useTelemetryStore } from './useTelemetryStore';
 export {
   useUnitTelemetrySnapshot,

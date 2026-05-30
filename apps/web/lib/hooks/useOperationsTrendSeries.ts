@@ -91,6 +91,28 @@ export const policyForWindow = (window: TrendWindow): TrendQueryPolicy => {
 };
 
 /**
+ * F4.7.2.1 — pick the raw / bucketed strategy based on the **width** of an
+ * arbitrary WellTest-derived window. Mirrors `policyForWindow` thresholds so
+ * Stabilization / Official Window / Full Test ranges of similar duration
+ * use the same bucketing as a generic pill of equivalent width.
+ *
+ *   - width ≤ 1 h           → raw mode.
+ *   - 1 h  < width ≤ 6 h    → 1m / avg / good_only.
+ *   - 6 h  < width ≤ 24 h   → 5m / avg / good_only.
+ *   - 24 h < width          → 15m / avg / good_only.
+ *
+ * Exported for tests.
+ */
+export const policyForWidth = (widthMs: number): TrendQueryPolicy => {
+  if (widthMs <= WINDOW_MS['1h']) return {};
+  if (widthMs <= WINDOW_MS['6h'])
+    return { bucket: '1m', aggregate: 'avg', qualityPolicy: 'good_only' };
+  if (widthMs <= WINDOW_MS['24h'])
+    return { bucket: '5m', aggregate: 'avg', qualityPolicy: 'good_only' };
+  return { bucket: '15m', aggregate: 'avg', qualityPolicy: 'good_only' };
+};
+
+/**
  * Quantizes `Date.now()` to a `bucketMs` boundary so successive renders
  * within the same bucket reuse the same TanStack Query cache key. Without
  * this, each render would compute a slightly newer `now`, invalidating the
@@ -100,13 +122,37 @@ const quantizeNow = (bucketMs: number): number => Math.floor(Date.now() / bucket
 
 const CACHE_BUCKET_MS = 15 * 1000; // 15-second cache-key resolution
 
+/**
+ * F4.7.2.1 — explicit window override carrying a WellTest-derived
+ * `(fromMs, toMs)` and the pill id that produced it. When supplied, the
+ * hook ignores `window: TrendWindow` for adapter calls and cache keys.
+ * The pill id participates in the cache key so primary pills and legacy
+ * generic ranges share the `'f4-trends'` prefix (preserves F4.5G.2.1
+ * reconnect invalidation) but don't collide with each other.
+ */
+export interface TrendWindowRange {
+  fromMs: number;
+  toMs: number;
+  pillId: string;
+}
+
 export interface UseOperationsTrendSeriesInput {
   /** Backend `MeasurementUnit.id` (UUID in api mode; simulator id in mock mode). */
   unitId: string;
   /** Canonical tag identifier name (e.g. `p_inlet`). */
   canonicalTagName: string;
-  /** Time window. Defaults to `15m` (mini chart) when omitted by caller. */
+  /** Time window. Defaults to `15m` (mini chart) when omitted by caller.
+   *  Ignored when `windowRange` is supplied. */
   window: TrendWindow;
+  /**
+   * F4.7.2.1 — explicit `(fromMs, toMs)` window derived from a WellTest
+   * (or any custom range). When supplied, takes precedence over `window`:
+   *   - `from` / `to` sent to the adapter come from `windowRange`.
+   *   - bucketing policy is chosen by `policyForWidth(toMs - fromMs)`.
+   *   - cache key includes `pillId`, `fromMs`, `toMs` (so successive
+   *     measuring-window slides share a cache slot inside the 15 s bucket).
+   */
+  windowRange?: TrendWindowRange;
   /** Series label shown by the chart legend. */
   name: string;
   /** Series color (CSS custom property or color string). */
@@ -152,6 +198,7 @@ export const useOperationsTrendSeries = (
     unitId,
     canonicalTagName,
     window,
+    windowRange,
     name,
     color,
     enabled = true,
@@ -159,20 +206,34 @@ export const useOperationsTrendSeries = (
   } = input;
 
   const source = getDataSource();
-  const policy = useMemo(() => policyForWindow(window), [window]);
 
-  // Quantize `to` to a coarse bucket so identical (unit, tag, window) re-renders
-  // within the same window share a TanStack Query cache key rather than
-  // refetching on every render. The refetchInterval below moves the window
-  // forward at controlled pacing.
-  const toEpoch = quantizeNow(CACHE_BUCKET_MS);
-  const fromEpoch = toEpoch - WINDOW_MS[window];
+  // F4.7.2.1 — `windowRange` (WellTest-derived) wins over `window` enum
+  // when supplied. Quantization of the legacy path keeps successive
+  // re-renders inside the same 15 s bucket sharing one cache entry; the
+  // override path already receives quantized values from `useWellTestWindow`,
+  // so no further quantization is applied here.
+  const useOverride = windowRange !== undefined;
+  const toEpoch = useOverride ? windowRange.toMs : quantizeNow(CACHE_BUCKET_MS);
+  const fromEpoch = useOverride ? windowRange.fromMs : toEpoch - WINDOW_MS[window];
+  const widthMs = Math.max(0, toEpoch - fromEpoch);
+
+  const policy = useMemo(
+    () => (useOverride ? policyForWidth(widthMs) : policyForWindow(window)),
+    [useOverride, widthMs, window],
+  );
+
+  // Discriminant included in the cache key so override calls (Stabilization /
+  // Official Window / Full Test) don't share a slot with legacy
+  // `window`-enum calls of the same `(unitId, tag, from, to)`. Both code
+  // paths share the `'f4-trends'` prefix so the F4.5G.2.1 reconnect
+  // invalidation drops both.
+  const windowKey = useOverride ? `range:${windowRange.pillId}` : `window:${window}`;
 
   const queryKey = [
     'f4-trends',
     unitId,
     canonicalTagName,
-    window,
+    windowKey,
     policy.bucket ?? 'raw',
     policy.aggregate ?? 'none',
     policy.qualityPolicy ?? 'none',

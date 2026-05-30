@@ -139,6 +139,45 @@ describe('telemetry-trends adapter — mock mode', () => {
     });
     expect(r1.points).toEqual(r2.points);
   });
+
+  // F4.7.2.1 — seeds added so HP-001's Oil Rate (`q_liquid`) and Temperature
+  // (`t_inlet`) tiles render data in mock mode. Water Cut (`water_cut`) and
+  // Differential P. (`dp_weir`) are not in `MOCK_F4_CANONICAL_TAGS`; their
+  // tiles continue to surface the honest empty state in mock mode.
+
+  it('F4.7.2.1: HP-001 q_liquid returns 60 synthetic points (bpd) so Oil Rate renders', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    stubFetchThatThrows();
+    const response = await adapterGetTelemetryTrends({
+      unitId: HP_001_ID,
+      from: FROM,
+      to: TO,
+      canonicalTagName: 'q_liquid',
+    });
+    expect(response.canonicalTag.name).toBe('q_liquid');
+    expect(response.canonicalTag.canonicalUnit).toBe('bpd');
+    expect(response.points).toHaveLength(60);
+    // Center 1200 bpd ± 40 → every value must be in [1160, 1240].
+    for (const p of response.points) {
+      const v = Number(p.value);
+      expect(v).toBeGreaterThanOrEqual(1160);
+      expect(v).toBeLessThanOrEqual(1240);
+    }
+  });
+
+  it('F4.7.2.1: HP-001 t_inlet returns 60 synthetic points (degF) so Temperature renders', async () => {
+    delete process.env.NEXT_PUBLIC_RVF_DATA_SOURCE;
+    stubFetchThatThrows();
+    const response = await adapterGetTelemetryTrends({
+      unitId: HP_001_ID,
+      from: FROM,
+      to: TO,
+      canonicalTagName: 't_inlet',
+    });
+    expect(response.canonicalTag.name).toBe('t_inlet');
+    expect(response.canonicalTag.canonicalUnit).toBe('degF');
+    expect(response.points).toHaveLength(60);
+  });
 });
 
 // =============================================================================
